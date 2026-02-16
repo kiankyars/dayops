@@ -1,8 +1,9 @@
 import os
-import mimetypes
+from pydantic import BaseModel, Field
+import re
 from datetime import datetime
 from google import genai
-from google.genai import types
+from google.genai import errors, types
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -11,82 +12,77 @@ load_dotenv()
 # Configuration
 SOURCE_DIR = os.path.expanduser("/Users/kian/Library/Mobile Documents/com~apple~CloudDocs/Music")
 OBSIDIAN_BASE = os.path.expanduser("~/obsidian")
-GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
-MODEL_NAME = "gemini-2.5-flash"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+MODEL_FALLBACKS = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-def process_audio(file_path):
-    # Send inline audio bytes directly (no Files API upload required for small requests).
-    mime_type, _ = mimetypes.guess_type(file_path)
-    if not mime_type:
-        ext = os.path.splitext(file_path)[1].lower()
-        mime_type = {
-            ".m4a": "audio/mp4",
-            ".mp3": "audio/mpeg",
-            ".wav": "audio/wav",
-            ".aac": "audio/aac",
-        }.get(ext, "application/octet-stream")
 
+class TranscriptResult(BaseModel):
+    response: str = Field(description="The transcript markdown text")
+    course: bool = Field(description="True only if the recording starts with 'course a pied', else false")
+
+def extract_recorded_datetime(file_path):
+    filename = os.path.basename(file_path)
+    match = re.search(r"(\d{4}-\d{2}-\d{2}).*?(\d{2}\.\d{2}\.\d{2})", filename)
+    return datetime.strptime(f"{match.group(1)} {match.group(2)}", "%Y-%m-%d %H.%M.%S")
+
+
+def process_audio(file_path):
     with open(file_path, 'rb') as f:
         audio_bytes = f.read()
 
-    # Prompt to both transcribe and classify
+    # Prompt with structured JSON output.
     prompt = """Transcribe the audio faithfully.
-Do NOT summarize.
-Reformat into concise bullet points.
-Preserve intent and phrasing.
-Output markdown bullets only.
+Reformat into markdown bullet points.
+Preserve intent and phrasing."""
 
-Additionally, determine if the speaker is talking about "course à pied" (running). 
-At the very end of your response, add a single line with exactly [COURSE] if it is about running, or [NOTE] if it is not."""
+    response = None
+    contents = [
+        prompt,
+        types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp4"),
+    ]
+    for model_name in MODEL_FALLBACKS:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config={
+                    "response_mime_type": "application/json",
+                    "response_json_schema": {
+                        "type": "object",
+                        "properties": {
+                            "response": {"type": "string"},
+                            "course": {"type": "boolean"},
+                        },
+                        "required": ["response", "course"],
+                        "additionalProperties": False,
+                    },
+                },
+            )
+            break
+        except errors.APIError as err:
+            if err.code != 429:
+                raise
+            continue
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=[
-            prompt,
-            types.Part.from_bytes(data=audio_bytes, mime_type=mime_type),
-        ],
-    )
-    
-    full_text = response.text.strip()
-    
-    # Determine target based on tag
-    if "[COURSE]" in full_text:
-        target_dir = os.path.join(OBSIDIAN_BASE, "course")
-        clean_transcript = full_text.replace("[COURSE]", "").strip()
-    else:
-        target_dir = os.path.join(OBSIDIAN_BASE, "notes")
-        clean_transcript = full_text.replace("[NOTE]", "").strip()
-        
+    response = TranscriptResult.model_validate_json(response.text)
+    print(response)
     # Append to Obsidian
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    target_file = os.path.join(target_dir, f"{date_str}.md")
-    os.makedirs(target_dir, exist_ok=True)
+    recorded_at = extract_recorded_datetime(file_path)
+    date_str = recorded_at.strftime("%Y-%m-%d")
+    target_file = os.path.join(OBSIDIAN_BASE, f"{date_str}.md")
     
     with open(target_file, "a") as f:
-        f.write(f"\n\n### Transcribed at {datetime.now().strftime('%H:%M:%S')}\n")
-        f.write(clean_transcript)
-        f.write("\n")
+        f.write(response.response)
     
     # Delete the local file
     os.remove(file_path)
 
 def main():
-    if not os.path.exists(SOURCE_DIR):
-        return
-
-    files = [f for f in os.listdir(SOURCE_DIR) if f.lower().endswith(('.m4a', '.mp3', '.wav', '.aac')) and not f.startswith(".")]
-    
-    for filename in files:
+    for filename in os.listdir(SOURCE_DIR):
         file_path = os.path.join(SOURCE_DIR, filename)
-        if os.path.getsize(file_path) < 100:
-            continue
-            
-        try:
-            process_audio(file_path)
-        except Exception:
-            pass
+        process_audio(file_path)
 
 if __name__ == "__main__":
     main()
