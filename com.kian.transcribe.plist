@@ -12,10 +12,6 @@
     <array>
         <string>/Users/kian/Library/Mobile Documents/com~apple~CloudDocs/Music</string>
     </array>
-    <key>StandardOutPath</key>
-    <string>/Users/kian/Developer/transcribe/launchd_stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/kian/Developer/transcribe/launchd_stderr.log</string>
     <key>WorkingDirectory</key>
     <string>/Users/kian/Developer/transcribe</string>
 </dict>

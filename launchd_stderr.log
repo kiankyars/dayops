@@ -1,52 +1,26 @@
 Traceback (most recent call last):
-  File "/Users/kian/Developer/transcribe/transcribe.py", line 47, in process_audio
-    response = client.models.generate_content(
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/models.py", line 5474, in generate_content
-    response = self._generate_content(
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/models.py", line 4214, in _generate_content
-    response = self._api_client.request(
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/_api_client.py", line 1396, in request
-    response = self._request(http_request, http_options, stream=False)
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/_api_client.py", line 1232, in _request
-    return self._retry(self._request_once, http_request, stream)  # type: ignore[no-any-return]
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/tenacity/__init__.py", line 470, in __call__
-    do = self.iter(retry_state=retry_state)
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/tenacity/__init__.py", line 371, in iter
-    result = action(retry_state)
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/tenacity/__init__.py", line 413, in exc_check
-    raise retry_exc.reraise()
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/tenacity/__init__.py", line 184, in reraise
-    raise self.last_attempt.result()
-  File "/Users/kian/.local/share/uv/python/cpython-3.10.18-macos-aarch64-none/lib/python3.10/concurrent/futures/_base.py", line 451, in result
-    return self.__get_result()
-  File "/Users/kian/.local/share/uv/python/cpython-3.10.18-macos-aarch64-none/lib/python3.10/concurrent/futures/_base.py", line 403, in __get_result
-    raise self._exception
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/tenacity/__init__.py", line 473, in __call__
-    result = fn(*args, **kwargs)
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/_api_client.py", line 1209, in _request_once
-    errors.APIError.raise_for_response(response)
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/errors.py", line 134, in raise_for_response
-    cls.raise_error(response.status_code, response_json, response)
-  File "/Users/kian/Developer/transcribe/.venv/lib/python3.10/site-packages/google/genai/errors.py", line 161, in raise_error
-    raise ServerError(status_code, response_json, response)
-google.genai.errors.ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}
-
-During handling of the above exception, another exception occurred:
-
+  File "/Users/kian/Developer/transcribe/transcribe.py", line 86, in <module>
+    main()
+  File "/Users/kian/Developer/transcribe/transcribe.py", line 83, in main
+    process_audio(file_path, bucket)
+  File "/Users/kian/Developer/transcribe/transcribe.py", line 56, in process_audio
+    audio_bytes = f.read()
+OSError: [Errno 11] Resource deadlock avoided
+429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3-flash\nPlease retry in 9.843219255s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3-flash'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '9s'}]}}
 Traceback (most recent call last):
   File "/Users/kian/Developer/transcribe/transcribe.py", line 86, in <module>
     main()
   File "/Users/kian/Developer/transcribe/transcribe.py", line 83, in main
-    process_audio(file_path)
-  File "/Users/kian/Developer/transcribe/transcribe.py", line 64, in process_audio
-    except errors.APIError.code == 429:
-AttributeError: type object 'APIError' has no attribute 'code'
+    process_audio(file_path, bucket)
+  File "/Users/kian/Developer/transcribe/transcribe.py", line 56, in process_audio
+    audio_bytes = f.read()
+OSError: [Errno 11] Resource deadlock avoided
+429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-3-flash\nPlease retry in 33.649375026s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-3-flash', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '33s'}]}}
 Traceback (most recent call last):
   File "/Users/kian/Developer/transcribe/transcribe.py", line 86, in <module>
+    main()
   File "/Users/kian/Developer/transcribe/transcribe.py", line 83, in main
-    for filename in os.listdir(SOURCE_DIR):
-  File "/Users/kian/Developer/transcribe/transcribe.py", line 70, in process_audio
-    print(response)
-  File "/Users/kian/Developer/transcribe/transcribe.py", line 28, in extract_recorded_datetime
-    return datetime.strptime(f"{match.group(1)} {match.group(2)}", "%Y-%m-%d %H.%M.%S")
-AttributeError: 'NoneType' object has no attribute 'group'
+    process_audio(file_path, bucket)
+  File "/Users/kian/Developer/transcribe/transcribe.py", line 56, in process_audio
+    audio_bytes = f.read()
+OSError: [Errno 11] Resource deadlock avoided
