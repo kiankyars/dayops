@@ -7,4 +7,5 @@ dependencies = [
     "dotenv>=0.9.9",
     "google-genai",
     "pydantic>=2.12.5",
+    "send2trash>=2.1.0",
 ]
