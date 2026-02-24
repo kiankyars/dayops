@@ -3,29 +3,26 @@
 <plist version="1.0">
 <dict>
     <!--
-        This launchd plist sets up a service with the label 'com.kian.transcribe'.
-        It does the following:
+        Template plist for COO local automation.
+        Copy this file and replace placeholders before loading:
+        - __COO_LABEL__
+        - __COO_RUNNER_SCRIPT__
+        - __VOICE_MEMOS_DIR__
+        - __WORKING_DIR__
 
-        - Watches these two iCloud directories:
-            /Users/kian/Library/Mobile Documents/com~apple~CloudDocs/Music/notes
-            /Users/kian/Library/Mobile Documents/com~apple~CloudDocs/Music/course
-        - When a change is detected in either directory, it runs:
-            /Users/kian/Developer/transcribe/run_transcribe.sh
-        - The script runs with the working directory:
-            /Users/kian/Developer/transcribe
+        This watcher triggers COO processing whenever VOICE_MEMOS_DIR changes.
     -->
     <key>Label</key>
-    <string>com.kian.transcribe</string>
+    <string>__COO_LABEL__</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/kian/Developer/transcribe/run_transcribe.sh</string>
+        <string>__COO_RUNNER_SCRIPT__</string>
     </array>
     <key>WatchPaths</key>
     <array>
-        <string>/Users/kian/Library/Mobile Documents/com~apple~CloudDocs/Music/notes</string>
-        <string>/Users/kian/Library/Mobile Documents/com~apple~CloudDocs/Music/course</string>
+        <string>__VOICE_MEMOS_DIR__</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/kian/Developer/transcribe</string>
+    <string>__WORKING_DIR__</string>
 </dict>
 </plist>

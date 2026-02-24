@@ -1,4 +1,8 @@
 #!/bin/bash
-cd "/Users/kian/Developer/transcribe"
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
 source .venv/bin/activate
-python3 transcribe.py
+coo run
