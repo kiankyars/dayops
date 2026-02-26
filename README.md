@@ -1,8 +1,6 @@
 # dayops
 
-**🎤➡️📅 `dayops`: Your Day, Automated.**
-
-Turn raw voice memos into a perfectly orchestrated day—with *no typing*. Record your plans, errands, and goals on the go: dayops magically transcribes, schedules, syncs Strava run times, and pushes everything straight to Google Calendar. Give your chaos order in minutes.
+Turn raw voice memos into a perfectly orchestrated day—with *no typing*. Record your plans, errands, and goals on the go: dayops transcribes, schedules, syncs Strava run times, and pushes everything straight to Google Calendar.
 
 ## What it does
 
@@ -65,3 +63,4 @@ If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google Open
 - `dayops plan apply --date YYYY-MM-DD`
 - `dayops plan revise --from-audio /path/to/file.m4a`
 - `dayops plan rollback --date YYYY-MM-DD`
+
