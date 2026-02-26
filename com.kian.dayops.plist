@@ -3,20 +3,20 @@
 <plist version="1.0">
 <dict>
     <!--
-        Template plist for COO local automation.
+        Template plist for DayOps local automation.
         Copy this file and replace placeholders before loading:
-        - __COO_LABEL__
-        - __COO_RUNNER_SCRIPT__
+        - __DAYOPS_LABEL__
+        - __DAYOPS_RUNNER_SCRIPT__
         - __VOICE_MEMOS_DIR__
         - __WORKING_DIR__
 
-        This watcher triggers COO processing whenever VOICE_MEMOS_DIR changes.
+        This watcher triggers DayOps processing whenever VOICE_MEMOS_DIR changes.
     -->
     <key>Label</key>
-    <string>__COO_LABEL__</string>
+    <string>__DAYOPS_LABEL__</string>
     <key>ProgramArguments</key>
     <array>
-        <string>__COO_RUNNER_SCRIPT__</string>
+        <string>__DAYOPS_RUNNER_SCRIPT__</string>
     </array>
     <key>WatchPaths</key>
     <array>

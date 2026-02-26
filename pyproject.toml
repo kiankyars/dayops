@@ -1,27 +1,24 @@
 [project]
-name = "transcribe"
+name = "dayops"
 version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "dotenv>=0.9.9",
-    "google-genai",
     "google-api-python-client>=2.184.0",
     "google-auth>=2.41.1",
-    "google-auth-oauthlib>=1.2.2",
-    "pydantic>=2.12.5",
-    "pydantic-settings>=2.10.1",
+    "openai>=1.108.1",
     "requests>=2.32.5",
     "send2trash>=2.1.0",
     "typer>=0.19.2",
 ]
 
 [project.scripts]
-coo = "coo:app"
+dayops = "main:app"
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools]
-py-modules = ["coo", "transcribe"]
+[tool.hatch.build.targets.wheel]
+only-include = ["main.py", "dayops_core.py"]

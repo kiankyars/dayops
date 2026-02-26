@@ -1,9 +1,8 @@
 __pycache__
 .venv
 uv.lock
-transcribe_errors.log
 launchd_stdout.log
 launchd_stderr.log
 .env
-.coo_state
-*.egg-info
+.dayops_state
+client_secret.json
