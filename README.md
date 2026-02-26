@@ -20,6 +20,8 @@ Turn raw voice memos into a day plan, enrich with Strava timing, and write to Go
    - `dayops tui`
 4. Run once:
    - `dayops run`
+5. Install auto-run launchd watcher (reads from `.env`):
+   - `./scripts/install_launchd.sh`
 
 ## Provider config
 
@@ -60,6 +62,13 @@ If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google Open
 - `dayops plan revise --from-audio /path/to/file.m4a`
 - `dayops plan rollback --date YYYY-MM-DD`
 
+## launchd
+
+- Template: `com.kian.dayops.plist`
+- Installer: `./scripts/install_launchd.sh`
+- Required `.env` key: `VOICE_MEMOS_DIR`
+- Optional `.env` key: `DAYOPS_LAUNCHD_LABEL` (default `com.kian.dayops`)
+
 ## Backend API
 
 - Start locally: `dayops-api`
@@ -81,8 +90,22 @@ curl -X POST http://localhost:8000/run \
   -H "x-api-key: $BACKEND_API_KEY"
 ```
 
-## Akash minimal deploy
+## Akash deploy
 
 1. Build and push container image (for example `ghcr.io/kiankyars/dayops:latest`).
 2. Update image/env values in `akash/deploy.yaml`.
 3. Deploy from Akash Console using that SDL.
+
+## Built With
+
+This project leverages the following frameworks, libraries, and tools:
+
+- [Python](https://www.python.org/) — Core programming language
+- [Typer](https://typer.tiangolo.com/) — CLI application framework
+- [Google Gemini API](https://ai.google.dev/gemini-api/docs) — LLM and speech-to-text provider
+- [Venice API](https://venice.ai/) — LLM and STT provider (optional, configurable)
+- [Strava API](https://developers.strava.com/) — Fitness and activity data integrations
+- [Google Calendar API](https://developers.google.com/calendar/api) — Calendar integrations
+- [Obsidian](https://obsidian.md/) — Markdown knowledge base (optional, for notes/features)
+- [Akash Network](https://akash.network/) — Decentralized deployment platform (for backend)
+- [Docker](https://www.docker.com/) — Containerization and deployment

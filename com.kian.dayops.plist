@@ -4,11 +4,13 @@
 <dict>
     <!--
         Template plist for DayOps local automation.
-        Copy this file and replace placeholders before loading:
+        Render this file from .env before loading:
         - __DAYOPS_LABEL__
         - __DAYOPS_RUNNER_SCRIPT__
         - __VOICE_MEMOS_DIR__
         - __WORKING_DIR__
+        - __STDOUT_LOG__
+        - __STDERR_LOG__
 
         This watcher triggers DayOps processing whenever VOICE_MEMOS_DIR changes.
     -->
@@ -24,5 +26,9 @@
     </array>
     <key>WorkingDirectory</key>
     <string>__WORKING_DIR__</string>
+    <key>StandardOutPath</key>
+    <string>__STDOUT_LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__STDERR_LOG__</string>
 </dict>
 </plist>
