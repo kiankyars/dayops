@@ -1,0 +1,10 @@
+.git
+.gitignore
+.venv
+__pycache__
+.ruff_cache
+.env
+.dayops_state
+launchd_stdout.log
+launchd_stderr.log
+uv.lock

@@ -1,0 +1,58 @@
+version: "2.0"
+
+services:
+  dayops-api:
+    image: ghcr.io/kiankyars/dayops:latest
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+    env:
+      - BACKEND_API_KEY=replace-me
+      - VOICE_MEMOS_DIR=/data/voice
+      - PLAN_TEMPLATE_PATH=/app/plan.md
+      - DAYOPS_STATE_DIR=/data/state
+      - DAYOPS_SNAPSHOT_DIR=/data/state/snapshots
+      - MODEL_PROVIDER=google
+      - MODEL_NAME=gemini-3-flash-preview
+      - STT_PROVIDER=gemini
+      - GEMINI_STT_MODEL=gemini-3-flash-preview
+      - VENICE_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3
+      - GOOGLE_CALENDAR_ID=primary
+      - GOOGLE_OAUTH_TOKEN_PATH=/data/google_oauth_token.json
+      - GEMINI_API_KEY=replace-me
+      - GEMINI_OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+      - STRAVA_CLIENT_ID=replace-me
+      - STRAVA_CLIENT_SECRET=replace-me
+      - STRAVA_REFRESH_TOKEN=replace-me
+      - VENICE_INFERENCE_KEY=
+      - VENICE_BASE_URL=https://api.venice.ai/api/v1
+      - TIMEZONE=America/Los_Angeles
+      - AUTO_APPLY=true
+      - TRASH_PROCESSED_MEMOS=true
+      - HYDRATE_MAX_RETRIES=6
+      - HYDRATE_RETRY_SECONDS=1.5
+
+profiles:
+  compute:
+    dayops-api:
+      resources:
+        cpu:
+          units: 0.5
+        memory:
+          size: 512Mi
+        storage:
+          size: 1Gi
+  placement:
+    akash:
+      pricing:
+        dayops-api:
+          denom: uakt
+          amount: 100
+
+deployment:
+  dayops-api:
+    akash:
+      profile: dayops-api
+      count: 1

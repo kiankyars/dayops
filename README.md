@@ -1,25 +1,25 @@
 # dayops
 
-Turn raw voice memos into a perfectly orchestrated day—with *no typing*. Record your plans, errands, and goals on the go: dayops transcribes, schedules, syncs Strava run times, and pushes everything straight to Google Calendar.
+Turn raw voice memos into a day plan, enrich with Strava timing, and write to Google Calendar.
 
 ## What it does
 
 - Reads `.m4a` files from `VOICE_MEMOS_DIR`
-- Transcribes memo audio (`STT_PROVIDER=gemini|venice`)
-- Parses intent and generates a schedule (`MODEL_PROVIDER=google|venice`)
+- Transcribes memo audio
+- Parses intent and generates a schedule
 - Adds Strava run start/end as a calendar event
 - Applies calendar updates (and keeps rollback snapshots)
-
-## What it does not do
-
-- No Obsidian writes
-- No phone rollback endpoint
 
 ## Setup
 
 1. Copy `.env.example` to `.env` and fill all required values.
-2. Install deps: `uv sync`
-3. Run once: `uv run dayops run`
+2. Install dependencies and CLI entrypoints:
+   - `uv sync`
+   - `uv pip install -e .`
+3. Validate:
+   - `dayops tui`
+4. Run once:
+   - `dayops run`
 
 ## Provider config
 
@@ -41,16 +41,12 @@ Use these values:
 - `VENICE_INFERENCE_KEY=...`
 - `VENICE_BASE_URL=https://api.venice.ai/api/v1`
 
-### Venice STT (optional)
+### Venice STT
 
 Use:
 
 - `STT_PROVIDER=venice`
 - `VENICE_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3`
-
-Alternative model:
-
-- `VENICE_STT_MODEL=openai/whisper-large-v3`
 
 If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google OpenAI-compatible endpoint.
 
@@ -64,3 +60,29 @@ If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google Open
 - `dayops plan revise --from-audio /path/to/file.m4a`
 - `dayops plan rollback --date YYYY-MM-DD`
 
+## Backend API
+
+- Start locally: `dayops-api`
+- Health: `GET /healthz`
+- Trigger processing: `POST /run`
+- Plan routes:
+  - `POST /plan/generate`
+  - `POST /plan/preview`
+  - `POST /plan/apply`
+  - `POST /plan/revise`
+  - `POST /plan/rollback`
+
+If `BACKEND_API_KEY` is set in env, send `x-api-key: <value>` on all `POST` routes.
+
+Example:
+
+```bash
+curl -X POST http://localhost:8000/run \
+  -H "x-api-key: $BACKEND_API_KEY"
+```
+
+## Akash minimal deploy
+
+1. Build and push container image (for example `ghcr.io/kiankyars/dayops:latest`).
+2. Update image/env values in `akash/deploy.yaml`.
+3. Deploy from Akash Console using that SDL.

@@ -1,5 +1,6 @@
 __pycache__
 .venv
+.venv_old_*
 uv.lock
 launchd_stdout.log
 launchd_stderr.log
