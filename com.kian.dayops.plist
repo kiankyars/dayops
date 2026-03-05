@@ -5,12 +5,13 @@
     <!--
         Template plist for DayOps local automation.
         Render this file from .env before loading:
-        - __DAYOPS_LABEL__
-        - __DAYOPS_RUNNER_SCRIPT__
-        - __VOICE_MEMOS_DIR__
-        - __WORKING_DIR__
-        - __STDOUT_LOG__
-        - __STDERR_LOG__
+        - DAYOPS_LABEL
+        - DAYOPS_RUNNER_SCRIPT
+        - VOICE_MEMOS_DIR
+        - WORKING_DIR
+        - STDOUT_LOG
+        - STDERR_LOG
+        - ENVIRONMENT_VARIABLES
 
         This watcher triggers DayOps processing whenever VOICE_MEMOS_DIR changes.
     -->
@@ -30,5 +31,9 @@
     <string>__STDOUT_LOG__</string>
     <key>StandardErrorPath</key>
     <string>__STDERR_LOG__</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+__ENVIRONMENT_VARIABLES__
+    </dict>
 </dict>
 </plist>
