@@ -16,7 +16,7 @@ Minimal backend for voice-memo planning into Google Calendar.
 - `GET /app` dashboard
   - shows API key
   - has **Rotate API Key** button
-  - timezone + calendar picker
+  - timezone + calendar picker (fixed timezone list)
 
 ## API
 
@@ -41,10 +41,9 @@ If you host static UI at `https://kiankyars.github.io/dayops`, that is fine, but
 
 Enable Google Calendar API in the same GCP project.
 
-If you see `missing_google_oauth_client_env_or_file`:
+If you see `missing_google_oauth_client_env`:
 
-1. Either set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET`.
-2. Or place OAuth client JSON at `.dayops_state/client_secret.json` (preferred for local) or `./client_secret.json`.
+Set `GOOGLE_OAUTH_CLIENT_ID` and `GOOGLE_OAUTH_CLIENT_SECRET` in `.env`.
 
 ## Env model
 
@@ -53,8 +52,8 @@ Global/server env vars (same for all users):
 - `GEMINI_API_KEY`
 - `GEMINI_MODELS` (comma-separated, tried left-to-right on rate limit)
 - `DAYOPS_STORAGE_ROOT` (optional, default `.dayops_state`)
-- `GOOGLE_OAUTH_CLIENT_ID` (optional if client_secret file is present)
-- `GOOGLE_OAUTH_CLIENT_SECRET` (optional if client_secret file is present)
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
 - `GOOGLE_OAUTH_REDIRECT_URI`
 - `DEFAULT_USER_TIMEZONE`
 
@@ -64,10 +63,11 @@ User-specific values are stored in `.dayops_state/users.json` and managed by the
 - `GOOGLE_OAUTH_TOKEN_PATH`
 - `GOOGLE_CALENDAR_ID`
 - `TIMEZONE`
-- user state/snapshot dirs
+- user state dir
 
 ## Notes
 
 - `plan.md` is kept in repo but no longer used by runtime.
 - Voice memo directory persistence was removed; uploads are processed from a temp file and deleted.
-- Session secret is auto-generated once and persisted at `.dayops_state/session_secret` unless `DAYOPS_SESSION_SECRET` is set.
+- Session secret is auto-generated once and persisted at `.dayops_state/session_secret`.
+- Snapshots were removed; rollback endpoint is disabled.

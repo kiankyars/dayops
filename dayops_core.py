@@ -26,7 +26,6 @@ GOOGLE_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/opena
 @dataclass
 class Settings:
     state_dir: Path
-    rollback_snapshot_dir: Path
 
     gemini_models: list[str]
     gemini_api_key: str
@@ -70,7 +69,6 @@ def load_settings() -> Settings:
 
     settings = Settings(
         state_dir=Path(_env("DAYOPS_STATE_DIR")).expanduser(),
-        rollback_snapshot_dir=Path(_env("DAYOPS_SNAPSHOT_DIR")).expanduser(),
         gemini_models=_parse_models(_env("GEMINI_MODELS")),
         gemini_api_key=_env("GEMINI_API_KEY"),
         google_calendar_id=_env("GOOGLE_CALENDAR_ID"),
@@ -82,7 +80,6 @@ def load_settings() -> Settings:
         raise RuntimeError(f"GOOGLE_OAUTH_TOKEN_PATH not found: {settings.google_oauth_token_path}")
 
     settings.state_dir.mkdir(parents=True, exist_ok=True)
-    settings.rollback_snapshot_dir.mkdir(parents=True, exist_ok=True)
     artifacts_root(settings).mkdir(parents=True, exist_ok=True)
     return settings
 
@@ -279,19 +276,37 @@ def managed_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def normalize_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _coerce_local_iso(value: str, timezone: str) -> str:
+    tz = ZoneInfo(timezone)
+    raw = value.strip()
+    if not raw:
+        raise RuntimeError("Event timestamp is empty")
+
+    if raw.endswith("Z"):
+        base = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return base.replace(tzinfo=tz).isoformat()
+
+    parsed = datetime.fromisoformat(raw)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=tz).isoformat()
+    return parsed.isoformat()
+
+
+def normalize_events(events: list[dict[str, Any]], timezone: str) -> list[dict[str, Any]]:
     cleaned: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
     for event in sorted(events, key=lambda x: x["start_iso"]):
-        key = (event["title"], event["start_iso"], event["end_iso"])
+        start_iso = _coerce_local_iso(str(event["start_iso"]), timezone)
+        end_iso = _coerce_local_iso(str(event["end_iso"]), timezone)
+        key = (event["title"], start_iso, end_iso)
         if key in seen:
             continue
         seen.add(key)
         cleaned.append(
             {
                 "title": event["title"],
-                "start_iso": event["start_iso"],
-                "end_iso": event["end_iso"],
+                "start_iso": start_iso,
+                "end_iso": end_iso,
                 "description": event.get("description", ""),
                 "location": event.get("location", ""),
                 "source": event.get("source", "dayops"),
@@ -323,7 +338,7 @@ Source audio: {audio_file.name}
 """.strip()
 
     data = llm_json(settings, prompt)
-    events = normalize_events(data.get("events", []))
+    events = normalize_events(data.get("events", []), settings.timezone)
     if not events:
         raise RuntimeError("No events generated")
 
@@ -351,18 +366,6 @@ def load_artifact(settings: Settings, date_str: str) -> dict[str, Any]:
     if not path.exists():
         raise RuntimeError(f"No artifact for {date_str}. Run generate first.")
     return json.loads(path.read_text())
-
-
-def snapshot_path(settings: Settings, date_str: str) -> Path:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return settings.rollback_snapshot_dir / f"{date_str}_{stamp}.json"
-
-
-def latest_snapshot(settings: Settings, date_str: str) -> Path:
-    files = sorted(settings.rollback_snapshot_dir.glob(f"{date_str}_*.json"))
-    if not files:
-        raise RuntimeError(f"No snapshot for {date_str}")
-    return files[-1]
 
 
 def event_end(event: dict[str, Any]) -> datetime:
@@ -422,14 +425,6 @@ def apply_artifact(settings: Settings, artifact: dict[str, Any], future_only: bo
     existing = managed_events(calendar_events(service, settings, artifact["date"]))
     now = datetime.now(ZoneInfo(settings.timezone))
 
-    snapshot = {
-        "date": artifact["date"],
-        "captured_at": datetime.now(UTC).isoformat(),
-        "future_only": future_only,
-        "events": existing,
-    }
-    snapshot_path(settings, artifact["date"]).write_text(json.dumps(snapshot, indent=2))
-
     deletes = 0
     locked = 0
     for event in existing:
@@ -453,27 +448,7 @@ def apply_artifact(settings: Settings, artifact: dict[str, Any], future_only: bo
 
 
 def rollback_day(settings: Settings, date_str: str) -> dict[str, int]:
-    service = calendar_service(settings)
-    previous = json.loads(latest_snapshot(settings, date_str).read_text()).get("events", [])
-    current = managed_events(calendar_events(service, settings, date_str))
-
-    for event in current:
-        service.events().delete(calendarId=settings.google_calendar_id, eventId=event["id"]).execute()
-
-    restored = 0
-    for event in previous:
-        body = {
-            "summary": event.get("summary", ""),
-            "description": event.get("description", ""),
-            "start": event.get("start", {}),
-            "end": event.get("end", {}),
-            "location": event.get("location", ""),
-            "extendedProperties": event.get("extendedProperties", {}),
-        }
-        service.events().insert(calendarId=settings.google_calendar_id, body=body).execute()
-        restored += 1
-
-    return {"creates": restored, "deletes": len(current), "locked": 0}
+    raise RuntimeError("Rollback disabled: snapshots have been removed.")
 
 
 def process_file(

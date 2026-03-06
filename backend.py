@@ -48,6 +48,13 @@ OAUTH_SCOPES = [
     "https://www.googleapis.com/auth/userinfo.profile",
     CALENDAR_SCOPE,
 ]
+TIMEZONE_OPTIONS = {
+    "Pacific Time": "America/Los_Angeles",
+    "Mountain Time": "America/Denver",
+    "Central Time": "America/Chicago",
+    "Eastern Time": "America/New_York",
+    "UTC": "UTC",
+}
 
 _ENV_LOCK = threading.Lock()
 _USERS_LOCK = threading.Lock()
@@ -203,22 +210,22 @@ def _upsert_user_from_oauth(userinfo: dict[str, Any], token_json: str) -> dict[s
 
     user_root = _user_root(google_sub)
     state_dir = user_root / "state"
-    snapshots_dir = state_dir / "snapshots"
     token_path = user_root / "google_oauth_token.json"
 
     user_root.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
-    snapshots_dir.mkdir(parents=True, exist_ok=True)
     token_path.write_text(token_json)
 
     env_map = profile.get("env") if isinstance(profile.get("env"), dict) else {}
     env_map = {str(k): str(v) for k, v in env_map.items()}
 
     env_map["DAYOPS_STATE_DIR"] = str(state_dir)
-    env_map["DAYOPS_SNAPSHOT_DIR"] = str(snapshots_dir)
     env_map["GOOGLE_OAUTH_TOKEN_PATH"] = str(token_path)
     env_map.setdefault("GOOGLE_CALENDAR_ID", "primary")
-    env_map.setdefault("TIMEZONE", os.getenv("DEFAULT_USER_TIMEZONE", "America/Los_Angeles"))
+    default_tz = os.getenv("DEFAULT_USER_TIMEZONE", "America/Los_Angeles")
+    if default_tz not in TIMEZONE_OPTIONS.values():
+        default_tz = "America/Los_Angeles"
+    env_map.setdefault("TIMEZONE", default_tz)
 
     api_key = str(profile.get("api_key", "")).strip() or _new_api_key()
 
@@ -407,25 +414,10 @@ def dashboard(request: Request) -> str:
         else f'<input type="text" name="google_calendar_id" value="{cal_id}" />'
     )
 
-    common_timezones = [
-        "America/Los_Angeles",
-        "America/Denver",
-        "America/Chicago",
-        "America/New_York",
-        "Europe/London",
-        "Europe/Paris",
-        "Asia/Dubai",
-        "Asia/Kolkata",
-        "Asia/Singapore",
-        "Asia/Tokyo",
-        "Australia/Sydney",
-        "UTC",
-    ]
-    if tz and tz not in common_timezones:
-        common_timezones.insert(0, tz)
+    current_tz = tz if tz in TIMEZONE_OPTIONS.values() else "America/Los_Angeles"
     tz_options = "".join(
-        f'<option value="{escape(name)}"' + (' selected' if name == tz else '') + f">{escape(name)}</option>"
-        for name in common_timezones
+        f'<option value="{escape(value)}"' + (' selected' if value == current_tz else '') + f">{escape(label)}</option>"
+        for label, value in TIMEZONE_OPTIONS.items()
     )
     timezone_input = f'<select name="timezone" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;margin-bottom:14px;">{tz_options}</select>'
 
@@ -482,7 +474,10 @@ def update_config(
     current = users[profile["user_id"]]
     env_map = current.get("env") if isinstance(current.get("env"), dict) else {}
     env_map = {str(k): str(v) for k, v in env_map.items()}
-    env_map["TIMEZONE"] = timezone_value.strip() or env_map.get("TIMEZONE", "America/Los_Angeles")
+    selected_timezone = timezone_value.strip()
+    if selected_timezone not in TIMEZONE_OPTIONS.values():
+        selected_timezone = "America/Los_Angeles"
+    env_map["TIMEZONE"] = selected_timezone
     env_map["GOOGLE_CALENDAR_ID"] = calendar_id.strip() or "primary"
     current["env"] = env_map
     users[profile["user_id"]] = current
@@ -577,7 +572,10 @@ def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=N
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        diff = rollback_day(settings, payload.date)
+        try:
+            diff = rollback_day(settings, payload.date)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=410, detail=str(exc)) from exc
         return {"date": payload.date, "diff": diff}
 
 

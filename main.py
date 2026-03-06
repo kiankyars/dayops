@@ -82,8 +82,11 @@ def plan_revise(
 @plan_app.command("rollback")
 def plan_rollback(date: str = typer.Option(..., help="Date in YYYY-MM-DD")) -> None:
     settings = load_settings()
-    diff = rollback_day(settings, date)
-    typer.echo(f"Rollback {date}: restored={diff['creates']} removed_current={diff['deletes']}")
+    try:
+        diff = rollback_day(settings, date)
+        typer.echo(f"Rollback {date}: restored={diff['creates']} removed_current={diff['deletes']}")
+    except RuntimeError as exc:
+        typer.echo(str(exc))
 
 
 @app.command()
@@ -91,7 +94,6 @@ def tui() -> None:
     settings = load_settings()
     typer.echo("DayOps status")
     typer.echo(f"- Artifacts: {artifacts_root(settings)}")
-    typer.echo(f"- Snapshots: {settings.rollback_snapshot_dir}")
 
 
 if __name__ == "__main__":
