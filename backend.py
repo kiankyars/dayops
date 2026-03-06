@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
@@ -34,13 +35,19 @@ from dayops_core import (
     save_state,
 )
 
+load_dotenv()
+
 APP_STATE_DIR = Path(os.getenv("DAYOPS_STORAGE_ROOT", ".dayops_state")).expanduser()
 USERS_CONFIG_PATH = APP_STATE_DIR / "users.json"
 USERS_DATA_DIR = APP_STATE_DIR / "users"
 SESSION_SECRET_PATH = APP_STATE_DIR / "session_secret"
-OAUTH_CLIENT_FILE_PATH = APP_STATE_DIR / "client_secret.json"
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
-OAUTH_SCOPES = ["openid", "email", "profile", CALENDAR_SCOPE]
+OAUTH_SCOPES = [
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+    CALENDAR_SCOPE,
+]
 
 _ENV_LOCK = threading.Lock()
 _USERS_LOCK = threading.Lock()
@@ -52,9 +59,6 @@ def _ensure_paths() -> None:
 
 
 def _session_secret() -> str:
-    configured = os.getenv("DAYOPS_SESSION_SECRET", "").strip()
-    if configured:
-        return configured
     _ensure_paths()
     if SESSION_SECRET_PATH.exists():
         value = SESSION_SECRET_PATH.read_text().strip()
@@ -155,25 +159,7 @@ def _oauth_client_config() -> dict[str, Any]:
                 "token_uri": "https://oauth2.googleapis.com/token",
             }
         }
-
-    paths = [OAUTH_CLIENT_FILE_PATH, Path("client_secret.json")]
-    for path in paths:
-        if not path.exists():
-            continue
-        try:
-            payload = json.loads(path.read_text())
-        except Exception as exc:  # pragma: no cover
-            raise HTTPException(status_code=500, detail=f"oauth_client_file_invalid_json: {path}") from exc
-        web = payload.get("web") if isinstance(payload, dict) else None
-        if not isinstance(web, dict):
-            continue
-        if web.get("client_id") and web.get("client_secret"):
-            return {"web": web}
-
-    raise HTTPException(
-        status_code=500,
-        detail="missing_google_oauth_client_env_or_file",
-    )
+    raise HTTPException(status_code=500, detail="missing_google_oauth_client_env")
 
 
 def _oauth_redirect_uri() -> str:
@@ -181,6 +167,12 @@ def _oauth_redirect_uri() -> str:
     if not uri:
         raise HTTPException(status_code=500, detail="missing_google_oauth_redirect_env")
     return uri
+
+
+def _allow_local_insecure_oauth_transport(redirect_uri: str) -> None:
+    if redirect_uri.startswith("http://localhost") or redirect_uri.startswith("http://127.0.0.1"):
+        # Local dev only. Production OAuth callback must use HTTPS.
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 
 def _fetch_google_userinfo(access_token: str) -> dict[str, Any]:
@@ -354,26 +346,36 @@ def landing(request: Request) -> str:
 @app.get("/auth/google/start")
 def auth_google_start(request: Request) -> RedirectResponse:
     flow = Flow.from_client_config(_oauth_client_config(), scopes=OAUTH_SCOPES)
-    flow.redirect_uri = _oauth_redirect_uri()
+    redirect_uri = _oauth_redirect_uri()
+    _allow_local_insecure_oauth_transport(redirect_uri)
+    flow.redirect_uri = redirect_uri
     auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent")
     request.session["oauth_state"] = state
+    request.session["oauth_code_verifier"] = flow.code_verifier
     return RedirectResponse(auth_url, status_code=302)
 
 
 @app.get("/auth/google/callback")
 def auth_google_callback(request: Request) -> RedirectResponse:
     state = str(request.session.get("oauth_state", ""))
+    code_verifier = str(request.session.get("oauth_code_verifier", ""))
     if not state:
         raise HTTPException(status_code=400, detail="oauth_state_missing")
+    if not code_verifier:
+        raise HTTPException(status_code=400, detail="oauth_code_verifier_missing")
 
     flow = Flow.from_client_config(_oauth_client_config(), scopes=OAUTH_SCOPES, state=state)
-    flow.redirect_uri = _oauth_redirect_uri()
+    redirect_uri = _oauth_redirect_uri()
+    _allow_local_insecure_oauth_transport(redirect_uri)
+    flow.redirect_uri = redirect_uri
+    flow.code_verifier = code_verifier
     flow.fetch_token(authorization_response=str(request.url))
 
     userinfo = _fetch_google_userinfo(flow.credentials.token)
     created = _upsert_user_from_oauth(userinfo, flow.credentials.to_json())
     request.session["user_id"] = created["user_id"]
     request.session.pop("oauth_state", None)
+    request.session.pop("oauth_code_verifier", None)
     return RedirectResponse("/app", status_code=302)
 
 
@@ -405,6 +407,28 @@ def dashboard(request: Request) -> str:
         else f'<input type="text" name="google_calendar_id" value="{cal_id}" />'
     )
 
+    common_timezones = [
+        "America/Los_Angeles",
+        "America/Denver",
+        "America/Chicago",
+        "America/New_York",
+        "Europe/London",
+        "Europe/Paris",
+        "Asia/Dubai",
+        "Asia/Kolkata",
+        "Asia/Singapore",
+        "Asia/Tokyo",
+        "Australia/Sydney",
+        "UTC",
+    ]
+    if tz and tz not in common_timezones:
+        common_timezones.insert(0, tz)
+    tz_options = "".join(
+        f'<option value="{escape(name)}"' + (' selected' if name == tz else '') + f">{escape(name)}</option>"
+        for name in common_timezones
+    )
+    timezone_input = f'<select name="timezone" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;margin-bottom:14px;">{tz_options}</select>'
+
     return f"""
 <html>
   <body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;background:#fafafa;color:#111827;">
@@ -422,7 +446,7 @@ def dashboard(request: Request) -> str:
     <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;">
       <form method="post" action="/app/config">
         <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">Timezone</label>
-        <input type="text" name="timezone" value="{tz}" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;margin-bottom:14px;" />
+        {timezone_input}
         <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">Calendar</label>
         {calendar_input}
         <div style="margin-top:14px;">
