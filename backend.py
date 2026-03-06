@@ -37,11 +37,11 @@ from dayops_core import (
 APP_STATE_DIR = Path(os.getenv("DAYOPS_STORAGE_ROOT", ".dayops_state")).expanduser()
 USERS_CONFIG_PATH = APP_STATE_DIR / "users.json"
 USERS_DATA_DIR = APP_STATE_DIR / "users"
+SESSION_SECRET_PATH = APP_STATE_DIR / "session_secret"
+OAUTH_CLIENT_FILE_PATH = APP_STATE_DIR / "client_secret.json"
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
 OAUTH_SCOPES = ["openid", "email", "profile", CALENDAR_SCOPE]
 
-app = FastAPI(title="dayops-backend", version="0.5.0")
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("DAYOPS_SESSION_SECRET", "dev-change-me"))
 _ENV_LOCK = threading.Lock()
 _USERS_LOCK = threading.Lock()
 
@@ -49,6 +49,24 @@ _USERS_LOCK = threading.Lock()
 def _ensure_paths() -> None:
     APP_STATE_DIR.mkdir(parents=True, exist_ok=True)
     USERS_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _session_secret() -> str:
+    configured = os.getenv("DAYOPS_SESSION_SECRET", "").strip()
+    if configured:
+        return configured
+    _ensure_paths()
+    if SESSION_SECRET_PATH.exists():
+        value = SESSION_SECRET_PATH.read_text().strip()
+        if value:
+            return value
+    generated = secrets.token_urlsafe(48)
+    SESSION_SECRET_PATH.write_text(generated)
+    return generated
+
+
+app = FastAPI(title="dayops-backend", version="0.6.0")
+app.add_middleware(SessionMiddleware, secret_key=_session_secret())
 
 
 def _sanitize_filename(name: str | None) -> str:
@@ -128,16 +146,34 @@ def _env_overrides(overrides: dict[str, str]):
 def _oauth_client_config() -> dict[str, Any]:
     client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
     client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    if not client_id or not client_secret:
-        raise HTTPException(status_code=500, detail="missing_google_oauth_client_env")
-    return {
-        "web": {
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
+    if client_id and client_secret:
+        return {
+            "web": {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
         }
-    }
+
+    paths = [OAUTH_CLIENT_FILE_PATH, Path("client_secret.json")]
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            payload = json.loads(path.read_text())
+        except Exception as exc:  # pragma: no cover
+            raise HTTPException(status_code=500, detail=f"oauth_client_file_invalid_json: {path}") from exc
+        web = payload.get("web") if isinstance(payload, dict) else None
+        if not isinstance(web, dict):
+            continue
+        if web.get("client_id") and web.get("client_secret"):
+            return {"web": web}
+
+    raise HTTPException(
+        status_code=500,
+        detail="missing_google_oauth_client_env_or_file",
+    )
 
 
 def _oauth_redirect_uri() -> str:
@@ -293,8 +329,26 @@ def healthz() -> dict[str, str]:
 @app.get("/", response_class=HTMLResponse)
 def landing(request: Request) -> str:
     if request.session.get("user_id"):
-        return '<html><body><h2>dayops</h2><p>Logged in.</p><p><a href="/app">Open dashboard</a></p></body></html>'
-    return '<html><body><h2>dayops</h2><p><a href="/auth/google/start">Sign in with Google</a></p></body></html>'
+        return (
+            "<html><body style='font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;"
+            "max-width:640px;margin:80px auto;padding:0 20px;'>"
+            "<h1 style='font-size:34px;margin-bottom:8px;'>dayops</h1>"
+            "<p style='color:#4b5563;margin-bottom:24px;'>You're signed in.</p>"
+            "<a href='/app' style='display:inline-block;padding:10px 14px;border:1px solid #111827;"
+            "border-radius:10px;text-decoration:none;color:#111827;font-weight:600;'>Open Dashboard</a>"
+            "</body></html>"
+        )
+    return (
+        "<html><body style='font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;"
+        "max-width:640px;margin:80px auto;padding:0 20px;background:#fafafa;'>"
+        "<h1 style='font-size:38px;margin:0 0 10px 0;'>dayops</h1>"
+        "<p style='color:#4b5563;margin:0 0 26px 0;'>AI day planning with Google Calendar.</p>"
+        "<a href='/auth/google/start' style='display:inline-flex;align-items:center;gap:10px;"
+        "padding:12px 16px;border:1px solid #d1d5db;border-radius:12px;background:white;"
+        "text-decoration:none;color:#111827;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.06);'>"
+        "<span style='font-size:18px;'>G</span> Sign in with Google</a>"
+        "</body></html>"
+    )
 
 
 @app.get("/auth/google/start")
@@ -353,20 +407,30 @@ def dashboard(request: Request) -> str:
 
     return f"""
 <html>
-  <body>
-    <h2>dayops dashboard</h2>
-    <p>User: {email or profile['user_id']}</p>
-    <p><strong>API key:</strong> <code>{api_key}</code></p>
-    <form method="post" action="/app/rotate-key">
-      <button type="submit">Rotate API Key</button>
-    </form>
-    <br />
-    <form method="post" action="/app/config">
-      <label>Timezone <input type="text" name="timezone" value="{tz}" /></label><br /><br />
-      <label>Calendar {calendar_input}</label><br /><br />
-      <button type="submit">Save</button>
-    </form>
-    <p><a href="/logout">Logout</a></p>
+  <body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;background:#fafafa;color:#111827;">
+    <h1 style="font-size:32px;margin:0 0 8px 0;">dayops</h1>
+    <p style="margin:0 0 22px 0;color:#4b5563;">{email or profile['user_id']}</p>
+
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;margin-bottom:14px;">
+      <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">API Key</div>
+      <code style="display:block;word-break:break-all;font-size:13px;">{api_key}</code>
+      <form method="post" action="/app/rotate-key" style="margin-top:12px;">
+        <button type="submit" style="padding:8px 12px;border:1px solid #111827;border-radius:10px;background:#111827;color:white;font-weight:600;">Rotate API Key</button>
+      </form>
+    </div>
+
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;">
+      <form method="post" action="/app/config">
+        <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">Timezone</label>
+        <input type="text" name="timezone" value="{tz}" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;margin-bottom:14px;" />
+        <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">Calendar</label>
+        {calendar_input}
+        <div style="margin-top:14px;">
+          <button type="submit" style="padding:9px 13px;border:1px solid #111827;border-radius:10px;background:#111827;color:white;font-weight:600;">Save</button>
+        </div>
+      </form>
+    </div>
+    <p style="margin-top:16px;"><a href="/logout" style="color:#4b5563;">Logout</a></p>
   </body>
 </html>
 """

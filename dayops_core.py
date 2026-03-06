@@ -16,6 +16,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from openai import OpenAI
+from openai import APIStatusError
+from openai import RateLimitError
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 GOOGLE_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
@@ -26,9 +28,8 @@ class Settings:
     state_dir: Path
     rollback_snapshot_dir: Path
 
-    model_name: str
+    gemini_models: list[str]
     gemini_api_key: str
-    gemini_stt_model: str
 
     google_calendar_id: str
     google_oauth_token_path: Path
@@ -41,6 +42,13 @@ def _env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required env var: {name}")
     return value
+
+
+def _parse_models(value: str) -> list[str]:
+    models = [part.strip() for part in value.split(",") if part.strip()]
+    if not models:
+        raise RuntimeError("GEMINI_MODELS must include at least one model")
+    return models
 
 
 def artifacts_root(settings: Settings) -> Path:
@@ -63,9 +71,8 @@ def load_settings() -> Settings:
     settings = Settings(
         state_dir=Path(_env("DAYOPS_STATE_DIR")).expanduser(),
         rollback_snapshot_dir=Path(_env("DAYOPS_SNAPSHOT_DIR")).expanduser(),
-        model_name=_env("MODEL_NAME").strip(),
+        gemini_models=_parse_models(_env("GEMINI_MODELS")),
         gemini_api_key=_env("GEMINI_API_KEY"),
-        gemini_stt_model=_env("GEMINI_STT_MODEL"),
         google_calendar_id=_env("GOOGLE_CALENDAR_ID"),
         google_oauth_token_path=Path(_env("GOOGLE_OAUTH_TOKEN_PATH")).expanduser(),
         timezone=_env("TIMEZONE"),
@@ -82,6 +89,14 @@ def load_settings() -> Settings:
 
 def provider_client(settings: Settings) -> OpenAI:
     return OpenAI(api_key=settings.gemini_api_key, base_url=GOOGLE_OPENAI_BASE_URL)
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitError):
+        return True
+    if isinstance(exc, APIStatusError) and exc.status_code == 429:
+        return True
+    return False
 
 
 def load_state(settings: Settings) -> dict[str, Any]:
@@ -125,16 +140,25 @@ def extract_recorded_datetime(file_path: Path) -> datetime:
 
 def llm_json(settings: Settings, prompt: str) -> dict[str, Any]:
     client = provider_client(settings)
-    response = client.chat.completions.create(
-        model=settings.model_name,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": "Return valid JSON only."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    content = response.choices[0].message.content or "{}"
-    return json.loads(content)
+    last_error: Exception | None = None
+    for model in settings.gemini_models:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": "Return valid JSON only."},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            content = response.choices[0].message.content or "{}"
+            return json.loads(content)
+        except Exception as exc:
+            if _is_rate_limit_error(exc):
+                last_error = exc
+                continue
+            raise
+    raise RuntimeError(f"All GEMINI_MODELS exhausted by rate limiting: {settings.gemini_models}") from last_error
 
 
 def _audio_format(path: Path) -> str:
@@ -149,28 +173,37 @@ def _audio_format(path: Path) -> str:
 def transcribe_audio_text(settings: Settings, audio_file: Path) -> str:
     client = provider_client(settings)
     audio_b64 = base64.b64encode(audio_file.read_bytes()).decode("utf-8")
-    response = client.chat.completions.create(
-        model=settings.gemini_stt_model,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Transcribe this audio. Return plain text only."},
+    last_error: Exception | None = None
+    for model in settings.gemini_models:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
                     {
-                        "type": "input_audio",
-                        "input_audio": {
-                            "data": audio_b64,
-                            "format": _audio_format(audio_file),
-                        },
-                    },
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Transcribe this audio. Return plain text only."},
+                            {
+                                "type": "input_audio",
+                                "input_audio": {
+                                    "data": audio_b64,
+                                    "format": _audio_format(audio_file),
+                                },
+                            },
+                        ],
+                    }
                 ],
-            }
-        ],
-    )
-    text = response.choices[0].message.content or ""
-    if not text:
-        raise RuntimeError("Gemini STT returned empty text")
-    return text.strip()
+            )
+            text = response.choices[0].message.content or ""
+            if not text:
+                raise RuntimeError("Gemini STT returned empty text")
+            return text.strip()
+        except Exception as exc:
+            if _is_rate_limit_error(exc):
+                last_error = exc
+                continue
+            raise
+    raise RuntimeError(f"All GEMINI_MODELS exhausted by rate limiting: {settings.gemini_models}") from last_error
 
 
 def transcribe_intent(settings: Settings, audio_file: Path, forced_type: str | None = None) -> dict[str, Any]:
