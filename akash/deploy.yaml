@@ -10,6 +10,7 @@ services:
           - global: true
     env:
       - BACKEND_API_KEY=replace-me
+      - USERS_CONFIG_PATH=/data/users.json
       - VOICE_MEMOS_DIR=/data/voice
       - PLAN_TEMPLATE_PATH=/app/plan.md
       - DAYOPS_STATE_DIR=/data/state
@@ -23,9 +24,6 @@ services:
       - GOOGLE_OAUTH_TOKEN_PATH=/data/google_oauth_token.json
       - GEMINI_API_KEY=replace-me
       - GEMINI_OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-      - STRAVA_CLIENT_ID=replace-me
-      - STRAVA_CLIENT_SECRET=replace-me
-      - STRAVA_REFRESH_TOKEN=replace-me
       - VENICE_INFERENCE_KEY=
       - VENICE_BASE_URL=https://api.venice.ai/api/v1
       - TIMEZONE=America/Los_Angeles

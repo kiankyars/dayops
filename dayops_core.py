@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import requests
 from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -46,10 +45,6 @@ class Settings:
 
     google_calendar_id: str
     google_oauth_token_path: Path
-
-    strava_client_id: str
-    strava_client_secret: str
-    strava_refresh_token: str
 
     timezone: str
     auto_apply: bool
@@ -121,9 +116,6 @@ def load_settings() -> Settings:
         venice_stt_model=_env("VENICE_STT_MODEL"),
         google_calendar_id=_env("GOOGLE_CALENDAR_ID"),
         google_oauth_token_path=Path(_env("GOOGLE_OAUTH_TOKEN_PATH")).expanduser(),
-        strava_client_id=_env("STRAVA_CLIENT_ID"),
-        strava_client_secret=_env("STRAVA_CLIENT_SECRET"),
-        strava_refresh_token=_env("STRAVA_REFRESH_TOKEN"),
         timezone=_env("TIMEZONE"),
         auto_apply=_env_bool("AUTO_APPLY"),
         trash_processed_memos=_env_bool("TRASH_PROCESSED_MEMOS"),
@@ -389,69 +381,6 @@ def managed_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def refresh_strava_token(settings: Settings, refresh_token: str) -> dict[str, Any]:
-    response = requests.post(
-        "https://www.strava.com/api/v3/oauth/token",
-        data={
-            "client_id": settings.strava_client_id,
-            "client_secret": settings.strava_client_secret,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-        },
-        timeout=20,
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def fetch_strava_run(settings: Settings, date_str: str) -> dict[str, Any] | None:
-    cache = settings.state_dir / "strava_token_cache.json"
-    token = settings.strava_refresh_token
-    if cache.exists():
-        try:
-            token = json.loads(cache.read_text()).get("refresh_token", token)
-        except json.JSONDecodeError:
-            pass
-
-    token_payload = refresh_strava_token(settings, token)
-    cache.write_text(
-        json.dumps(
-            {
-                "refresh_token": token_payload.get("refresh_token", settings.strava_refresh_token),
-                "saved_at": datetime.now(UTC).isoformat(),
-            },
-            indent=2,
-        )
-    )
-
-    access_token = token_payload["access_token"]
-    resp = requests.get(
-        "https://www.strava.com/api/v3/athlete/activities",
-        params={"per_page": 20, "page": 1},
-        headers={"Authorization": f"Bearer {access_token}"},
-        timeout=20,
-    )
-    resp.raise_for_status()
-
-    for activity in resp.json():
-        if activity.get("type") != "Run":
-            continue
-        if not str(activity.get("start_date_local", "")).startswith(date_str):
-            continue
-
-        start = datetime.fromisoformat(activity["start_date"].replace("Z", "+00:00"))
-        end = start + timedelta(seconds=int(activity.get("elapsed_time", 0)))
-        return {
-            "activity_id": str(activity.get("id")),
-            "distance_km": round(float(activity.get("distance", 0.0)) / 1000.0, 2),
-            "start_iso": start.isoformat(),
-            "end_iso": end.isoformat(),
-            "elapsed_seconds": int(activity.get("elapsed_time", 0)),
-            "moving_seconds": int(activity.get("moving_time", 0)),
-        }
-    return None
-
-
 def normalize_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     cleaned: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -473,31 +402,11 @@ def normalize_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cleaned
 
 
-def add_strava_event(events: list[dict[str, Any]], run: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not run:
-        return events
-    filtered = [e for e in events if e.get("source") != "strava"]
-    filtered.append(
-        {
-            "title": f"Run ({run['distance_km']} km)",
-            "start_iso": run["start_iso"],
-            "end_iso": run["end_iso"],
-            "description": (
-                f"Strava {run['activity_id']} | moving {run['moving_seconds']}s | "
-                f"elapsed {run['elapsed_seconds']}s"
-            ),
-            "source": "strava",
-        }
-    )
-    return filtered
-
-
 def generate_plan(
     settings: Settings,
     intent: dict[str, Any],
     audio_file: Path,
     date_str: str,
-    run: dict[str, Any] | None,
 ) -> dict[str, Any]:
     template = settings.plan_template_path.read_text()
     service = calendar_service(settings)
@@ -519,12 +428,11 @@ Memo type: {intent.get('memo_type')}
 Intent JSON: {json.dumps(intent)}
 Template: {template}
 Busy events: {json.dumps(busy)}
-Strava run context: {json.dumps(run)}
 Source audio: {audio_file.name}
 """.strip()
 
     data = llm_json(settings, prompt)
-    events = normalize_events(add_strava_event(data.get("events", []), run))
+    events = normalize_events(data.get("events", []))
     if not events:
         raise RuntimeError("No events generated")
 
@@ -536,7 +444,6 @@ Source audio: {audio_file.name}
         "summary": data.get("summary", ""),
         "notes_markdown": data.get("notes_markdown", ""),
         "events": events,
-        "strava_run": run,
     }
 
 
@@ -699,8 +606,7 @@ def process_file(
 ) -> tuple[dict[str, Any], dict[str, int] | None]:
     intent = transcribe_intent(settings, audio_file, forced_type=forced_type)
     date_str = intent.get("date") or extract_recorded_datetime(audio_file).strftime("%Y-%m-%d")
-    run = fetch_strava_run(settings, date_str)
-    artifact = generate_plan(settings, intent, audio_file, date_str, run)
+    artifact = generate_plan(settings, intent, audio_file, date_str)
     write_artifact(settings, artifact)
 
     should_apply = settings.auto_apply if apply_override is None else apply_override

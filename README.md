@@ -1,18 +1,17 @@
 # dayops
 
-Turn raw voice memos into a day plan, enrich with Strava timing, and write to Google Calendar.
+Turn raw voice memos into day plans and write to Google Calendar.
 
 ## What it does
 
-- Reads `.m4a` files from `VOICE_MEMOS_DIR`
-- Transcribes memo audio
-- Parses intent and generates a schedule
-- Adds Strava run start/end as a calendar event
-- Applies calendar updates (and keeps rollback snapshots)
+- Ingests `.m4a` voice memos
+- Transcribes and parses planning intent
+- Generates structured daily schedules
+- Applies plans to Google Calendar with rollback snapshots
 
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill all required values.
+1. Copy `.env.example` to `.env` and fill required values.
 2. Install dependencies and CLI entrypoints:
    - `uv sync`
    - `uv pip install -e .`
@@ -20,37 +19,6 @@ Turn raw voice memos into a day plan, enrich with Strava timing, and write to Go
    - `dayops tui`
 4. Run once:
    - `dayops run`
-5. Install auto-run launchd watcher (reads from `.env`):
-   - `./scripts/install_launchd.sh`
-
-## Provider config
-
-### Google via OpenAI-compatible API
-
-Use these values:
-
-- `MODEL_PROVIDER=google`
-- `MODEL_NAME=gemini-3-flash-preview` (or another Gemini model)
-- `GEMINI_API_KEY=...`
-- `GEMINI_OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/`
-
-### Venice inference
-
-Use these values:
-
-- `MODEL_PROVIDER=venice`
-- `MODEL_NAME=<venice-chat-model>`
-- `VENICE_INFERENCE_KEY=...`
-- `VENICE_BASE_URL=https://api.venice.ai/api/v1`
-
-### Venice STT
-
-Use:
-
-- `STT_PROVIDER=venice`
-- `VENICE_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3`
-
-If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google OpenAI-compatible endpoint.
 
 ## CLI
 
@@ -62,18 +30,13 @@ If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google Open
 - `dayops plan revise --from-audio /path/to/file.m4a`
 - `dayops plan rollback --date YYYY-MM-DD`
 
-## launchd
-
-- Template: `com.kian.dayops.plist`
-- Installer: `./scripts/install_launchd.sh`
-- Required `.env` key: `VOICE_MEMOS_DIR`
-- Optional `.env` key: `DAYOPS_LAUNCHD_LABEL` (default `com.kian.dayops`)
-
 ## Backend API
 
 - Start locally: `dayops-api`
 - Health: `GET /healthz`
-- Trigger processing: `POST /run`
+- Upload + process now: `POST /ingest`
+- Process pending single-user queue: `POST /run`
+- Process pending queue for one multi-user profile: `POST /users/{user_id}/run`
 - Plan routes:
   - `POST /plan/generate`
   - `POST /plan/preview`
@@ -81,44 +44,69 @@ If `STT_PROVIDER=gemini`, DayOps uses Gemini audio input through the Google Open
   - `POST /plan/revise`
   - `POST /plan/rollback`
 
-If `BACKEND_API_KEY` is set in env, send `x-api-key: <value>` on all `POST` routes.
+### Single-user auth
 
-Example:
+If `BACKEND_API_KEY` is set, send `x-api-key` on protected routes.
 
 ```bash
 curl -X POST http://localhost:8000/run \
   -H "x-api-key: $BACKEND_API_KEY"
 ```
 
+### Multi-user auth and secret isolation
+
+Set `USERS_CONFIG_PATH` to a server-side JSON file. Each user has:
+
+- a dedicated `api_key`
+- their own env block (`VOICE_MEMOS_DIR`, `DAYOPS_STATE_DIR`, Google OAuth path, model keys, etc.)
+
+`/ingest` accepts `x-user-id` + `x-api-key` and processes using only that user's env.
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "x-user-id: mom" \
+  -H "x-api-key: <mom-api-key>" \
+  -F "file=@/path/to/memo.m4a"
+```
+
+Example users config (`USERS_CONFIG_PATH`):
+
+```json
+{
+  "users": {
+    "mom": {
+      "api_key": "replace-me",
+      "env": {
+        "VOICE_MEMOS_DIR": "/data/users/mom/voice",
+        "PLAN_TEMPLATE_PATH": "/app/plan.md",
+        "DAYOPS_STATE_DIR": "/data/users/mom/state",
+        "DAYOPS_SNAPSHOT_DIR": "/data/users/mom/state/snapshots",
+        "MODEL_PROVIDER": "google",
+        "MODEL_NAME": "gemini-3-flash-preview",
+        "STT_PROVIDER": "gemini",
+        "GEMINI_STT_MODEL": "gemini-3-flash-preview",
+        "VENICE_STT_MODEL": "nvidia/parakeet-tdt-0.6b-v3",
+        "GOOGLE_CALENDAR_ID": "primary",
+        "GOOGLE_OAUTH_TOKEN_PATH": "/data/users/mom/google_oauth_token.json",
+        "GEMINI_API_KEY": "replace-me",
+        "GEMINI_OPENAI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "VENICE_INFERENCE_KEY": "",
+        "VENICE_BASE_URL": "https://api.venice.ai/api/v1",
+        "TIMEZONE": "America/Los_Angeles",
+        "AUTO_APPLY": "true",
+        "TRASH_PROCESSED_MEMOS": "false",
+        "HYDRATE_MAX_RETRIES": "6",
+        "HYDRATE_RETRY_SECONDS": "1.5"
+      }
+    }
+  }
+}
+```
+
 ## Akash deploy
 
 1. Build and push container image (for example `ghcr.io/kiankyars/dayops:latest`).
 2. Update image/env values in `akash/deploy.yaml`.
-3. Deploy from Akash Console using that SDL.
-
-## Built With
-
-This project leverages the following frameworks, libraries, and tools:
-
-- [Python](https://www.python.org/) — Core programming language
-- [Typer](https://typer.tiangolo.com/) — CLI application framework
-- [Google Gemini API](https://ai.google.dev/gemini-api/docs) — LLM and speech-to-text provider
-- [Venice API](https://venice.ai/) — LLM and STT provider (optional, configurable)
-- [Strava API](https://developers.strava.com/) — Fitness and activity data integrations
-- [Google Calendar API](https://developers.google.com/calendar/api) — Calendar integrations
-- [Obsidian](https://obsidian.md/) — Markdown knowledge base (optional, for notes/features)
-- [Akash Network](https://akash.network/) — Decentralized deployment platform (for backend)
-- [Docker](https://www.docker.com/) — Containerization and deployment
-
-## A strong “steering” transcript example:
-
-Planning date is Friday, February 27, 2026, timezone America/Los_Angeles.
-This is a morning plan, not a revision.
-Non-negotiables: run 7:30 to 8:30, shower 8:30 to 9:00, office 10:00 to 12:00, lunch 12:00 to 12:30.
-Main priorities today:
-1) Finish investor update draft.
-2) Ship v1 of dayops launchd flow.
-3) Review two hiring candidates.
-Please structure deep work in 2-hour blocks with a short break between blocks and one 10-minute walk every 2 hours.
-No meetings after 6:30pm.
-Buffer 30 minutes at end of day for review and tomorrow planning.
+3. Mount persistent storage for `/data`.
+4. Store `users.json` on that volume and set `USERS_CONFIG_PATH=/data/users.json`.
+5. Deploy from Akash Console.

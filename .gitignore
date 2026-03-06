@@ -7,3 +7,5 @@ launchd_stderr.log
 .env
 .dayops_state
 client_secret.json
+users.json
+logs/
