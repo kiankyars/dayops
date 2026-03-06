@@ -109,3 +109,16 @@ This project leverages the following frameworks, libraries, and tools:
 - [Obsidian](https://obsidian.md/) — Markdown knowledge base (optional, for notes/features)
 - [Akash Network](https://akash.network/) — Decentralized deployment platform (for backend)
 - [Docker](https://www.docker.com/) — Containerization and deployment
+
+## A strong “steering” transcript example:
+
+Planning date is Friday, February 27, 2026, timezone America/Los_Angeles.
+This is a morning plan, not a revision.
+Non-negotiables: run 7:30 to 8:30, shower 8:30 to 9:00, office 10:00 to 12:00, lunch 12:00 to 12:30.
+Main priorities today:
+1) Finish investor update draft.
+2) Ship v1 of dayops launchd flow.
+3) Review two hiring candidates.
+Please structure deep work in 2-hour blocks with a short break between blocks and one 10-minute walk every 2 hours.
+No meetings after 6:30pm.
+Buffer 30 minutes at end of day for review and tomorrow planning.
