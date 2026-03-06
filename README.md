@@ -1,112 +1,69 @@
 # dayops
 
-Turn raw voice memos into day plans and write to Google Calendar.
+Minimal backend for voice-memo planning into Google Calendar.
 
-## What it does
+## Flow
 
-- Ingests `.m4a` voice memos
-- Transcribes and parses planning intent
-- Generates structured daily schedules
-- Applies plans to Google Calendar with rollback snapshots
+1. User signs in with Google and grants Calendar scope.
+2. Backend stores that user's refresh token under `.dayops_state/users/<google-sub>/`.
+3. Backend generates a unique API key for that user.
+4. Client uploads `.m4a` to `/ingest` with `x-api-key`.
+5. Day plan is generated and applied to that user's calendar.
 
-## Setup
+## Web UI
 
-1. Copy `.env.example` to `.env` and fill required values.
-2. Install dependencies and CLI entrypoints:
-   - `uv sync`
-   - `uv pip install -e .`
-3. Validate:
-   - `dayops tui`
-4. Run once:
-   - `dayops run`
+- `GET /` sign-in landing
+- `GET /app` dashboard
+  - shows API key
+  - has **Rotate API Key** button
+  - timezone + calendar picker
 
-## CLI
+## API
 
-- `dayops run`
-- `dayops tui`
-- `dayops plan generate --date YYYY-MM-DD`
-- `dayops plan preview --date YYYY-MM-DD`
-- `dayops plan apply --date YYYY-MM-DD`
-- `dayops plan revise --from-audio /path/to/file.m4a`
-- `dayops plan rollback --date YYYY-MM-DD`
+- `POST /ingest` (`x-api-key`, multipart `file=@memo.m4a`)
+- `POST /run` (no-op; returns 0)
+- `POST /plan/generate` (`from_audio` required)
+- `POST /plan/preview`
+- `POST /plan/apply`
+- `POST /plan/revise`
+- `POST /plan/rollback`
 
-## Backend API
+## GCP setup
 
-- Start locally: `dayops-api`
-- Health: `GET /healthz`
-- Upload + process now: `POST /ingest`
-- Process pending single-user queue: `POST /run`
-- Process pending queue for one multi-user profile: `POST /users/{user_id}/run`
-- Plan routes:
-  - `POST /plan/generate`
-  - `POST /plan/preview`
-  - `POST /plan/apply`
-  - `POST /plan/revise`
-  - `POST /plan/rollback`
+Create one OAuth client of type **Web application**.
 
-### Single-user auth
+Required redirect URI must point to your backend callback, not GitHub Pages:
 
-If `BACKEND_API_KEY` is set, send `x-api-key` on protected routes.
+- local: `http://localhost:8000/auth/google/callback`
+- prod: `https://<your-backend-domain>/auth/google/callback`
 
-```bash
-curl -X POST http://localhost:8000/run \
-  -H "x-api-key: $BACKEND_API_KEY"
-```
+If you host static UI at `https://kiankyars.github.io/dayops`, that is fine, but OAuth callback still goes to backend.
 
-### Multi-user auth and secret isolation
+Enable Google Calendar API in the same GCP project.
 
-Set `USERS_CONFIG_PATH` to a server-side JSON file. Each user has:
+## Env model
 
-- a dedicated `api_key`
-- their own env block (`VOICE_MEMOS_DIR`, `DAYOPS_STATE_DIR`, Google OAuth path, model keys, etc.)
+Global/server env vars (same for all users):
 
-`/ingest` accepts `x-user-id` + `x-api-key` and processes using only that user's env.
+- `GEMINI_API_KEY`
+- `MODEL_NAME`
+- `GEMINI_STT_MODEL`
+- `DAYOPS_SESSION_SECRET`
+- `DAYOPS_STORAGE_ROOT` (optional, default `.dayops_state`)
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URI`
+- `DEFAULT_USER_TIMEZONE`
 
-```bash
-curl -X POST http://localhost:8000/ingest \
-  -H "x-user-id: mom" \
-  -H "x-api-key: <mom-api-key>" \
-  -F "file=@/path/to/memo.m4a"
-```
+User-specific values are stored in `.dayops_state/users.json` and managed by the app:
 
-Example users config (`USERS_CONFIG_PATH`):
+- `api_key`
+- `GOOGLE_OAUTH_TOKEN_PATH`
+- `GOOGLE_CALENDAR_ID`
+- `TIMEZONE`
+- user state/snapshot dirs
 
-```json
-{
-  "users": {
-    "mom": {
-      "api_key": "replace-me",
-      "env": {
-        "VOICE_MEMOS_DIR": "/data/users/mom/voice",
-        "PLAN_TEMPLATE_PATH": "/app/plan.md",
-        "DAYOPS_STATE_DIR": "/data/users/mom/state",
-        "DAYOPS_SNAPSHOT_DIR": "/data/users/mom/state/snapshots",
-        "MODEL_PROVIDER": "google",
-        "MODEL_NAME": "gemini-3-flash-preview",
-        "STT_PROVIDER": "gemini",
-        "GEMINI_STT_MODEL": "gemini-3-flash-preview",
-        "VENICE_STT_MODEL": "nvidia/parakeet-tdt-0.6b-v3",
-        "GOOGLE_CALENDAR_ID": "primary",
-        "GOOGLE_OAUTH_TOKEN_PATH": "/data/users/mom/google_oauth_token.json",
-        "GEMINI_API_KEY": "replace-me",
-        "GEMINI_OPENAI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "VENICE_INFERENCE_KEY": "",
-        "VENICE_BASE_URL": "https://api.venice.ai/api/v1",
-        "TIMEZONE": "America/Los_Angeles",
-        "AUTO_APPLY": "true",
-        "TRASH_PROCESSED_MEMOS": "false",
-        "HYDRATE_MAX_RETRIES": "6",
-        "HYDRATE_RETRY_SECONDS": "1.5"
-      }
-    }
-  }
-}
-```
+## Notes
 
-## Akash deploy
-
-1. Build and push container image (for example `ghcr.io/kiankyars/dayops:latest`).
-2. Update image/env values in `akash/deploy.yaml`.
-3. Mount persistent storage for `/data`.
-4. Store `users.json` on that volume and set `USERS_CONFIG_PATH=/data/users.json`.
-5. Deploy from Akash Console.
+- `plan.md` is kept in repo but no longer used by runtime.
+- Voice memo directory persistence was removed; uploads are processed from a temp file and deleted.

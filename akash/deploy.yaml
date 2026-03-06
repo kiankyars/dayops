@@ -9,28 +9,16 @@ services:
         to:
           - global: true
     env:
-      - BACKEND_API_KEY=replace-me
-      - USERS_CONFIG_PATH=/data/users.json
-      - VOICE_MEMOS_DIR=/data/voice
-      - PLAN_TEMPLATE_PATH=/app/plan.md
-      - DAYOPS_STATE_DIR=/data/state
-      - DAYOPS_SNAPSHOT_DIR=/data/state/snapshots
-      - MODEL_PROVIDER=google
+      - PORT=8000
+      - DAYOPS_STORAGE_ROOT=/data/dayops
+      - DAYOPS_SESSION_SECRET=replace-me
+      - GOOGLE_OAUTH_CLIENT_ID=replace-me
+      - GOOGLE_OAUTH_CLIENT_SECRET=replace-me
+      - GOOGLE_OAUTH_REDIRECT_URI=https://replace-me/auth/google/callback
+      - DEFAULT_USER_TIMEZONE=America/Los_Angeles
       - MODEL_NAME=gemini-3-flash-preview
-      - STT_PROVIDER=gemini
       - GEMINI_STT_MODEL=gemini-3-flash-preview
-      - VENICE_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3
-      - GOOGLE_CALENDAR_ID=primary
-      - GOOGLE_OAUTH_TOKEN_PATH=/data/google_oauth_token.json
       - GEMINI_API_KEY=replace-me
-      - GEMINI_OPENAI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
-      - VENICE_INFERENCE_KEY=
-      - VENICE_BASE_URL=https://api.venice.ai/api/v1
-      - TIMEZONE=America/Los_Angeles
-      - AUTO_APPLY=true
-      - TRASH_PROCESSED_MEMOS=true
-      - HYDRATE_MAX_RETRIES=6
-      - HYDRATE_RETRY_SECONDS=1.5
 
 profiles:
   compute:

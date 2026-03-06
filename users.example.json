@@ -1,28 +1,14 @@
 {
   "users": {
-    "kian": {
+    "google-sub-id": {
+      "email": "user@example.com",
       "api_key": "replace-me",
       "env": {
-        "VOICE_MEMOS_DIR": "/data/users/kian/voice",
-        "PLAN_TEMPLATE_PATH": "/app/plan.md",
-        "DAYOPS_STATE_DIR": "/data/users/kian/state",
-        "DAYOPS_SNAPSHOT_DIR": "/data/users/kian/state/snapshots",
-        "MODEL_PROVIDER": "google",
-        "MODEL_NAME": "gemini-3-flash-preview",
-        "STT_PROVIDER": "gemini",
-        "GEMINI_STT_MODEL": "gemini-3-flash-preview",
-        "VENICE_STT_MODEL": "nvidia/parakeet-tdt-0.6b-v3",
+        "DAYOPS_STATE_DIR": ".dayops_state/users/google-sub-id/state",
+        "DAYOPS_SNAPSHOT_DIR": ".dayops_state/users/google-sub-id/state/snapshots",
+        "GOOGLE_OAUTH_TOKEN_PATH": ".dayops_state/users/google-sub-id/google_oauth_token.json",
         "GOOGLE_CALENDAR_ID": "primary",
-        "GOOGLE_OAUTH_TOKEN_PATH": "/data/users/kian/google_oauth_token.json",
-        "GEMINI_API_KEY": "replace-me",
-        "GEMINI_OPENAI_BASE_URL": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "VENICE_INFERENCE_KEY": "",
-        "VENICE_BASE_URL": "https://api.venice.ai/api/v1",
-        "TIMEZONE": "America/Los_Angeles",
-        "AUTO_APPLY": "true",
-        "TRASH_PROCESSED_MEMOS": "false",
-        "HYDRATE_MAX_RETRIES": "6",
-        "HYDRATE_RETRY_SECONDS": "1.5"
+        "TIMEZONE": "America/Los_Angeles"
       }
     }
   }

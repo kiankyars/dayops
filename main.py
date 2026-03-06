@@ -6,9 +6,6 @@ from dayops_core import (
     apply_artifact,
     artifact_path,
     artifacts_root,
-    is_processed,
-    latest_audio_for_date,
-    list_audio_files,
     load_artifact,
     load_settings,
     load_state,
@@ -24,33 +21,25 @@ app.add_typer(plan_app, name="plan")
 
 
 @app.command()
-def run() -> None:
+def run(from_audio: Path = typer.Option(..., help="Audio path (.m4a)")) -> None:
     settings = load_settings()
     state = load_state(settings)
 
-    pending = [f for f in list_audio_files(settings) if not is_processed(state, f)]
-    if not pending:
-        typer.echo("No new files.")
-        return
-
-    for file_path in pending:
-        artifact, diff = process_file(settings, state, file_path, forced_type=None, apply_override=None)
-        typer.echo(f"Processed {file_path.name} -> {artifact['date']} ({artifact['memo_type']})")
-        if diff:
-            typer.echo(f"Calendar: create={diff['creates']} delete={diff['deletes']} locked={diff['locked']}")
+    artifact, diff = process_file(settings, state, from_audio, forced_type=None, apply_override=None)
+    typer.echo(f"Processed {from_audio.name} -> {artifact['date']} ({artifact['memo_type']})")
+    if diff:
+        typer.echo(f"Calendar: create={diff['creates']} delete={diff['deletes']} locked={diff['locked']}")
 
     save_state(settings, state)
 
 
 @plan_app.command("generate")
 def plan_generate(
-    date: str = typer.Option(..., help="Date in YYYY-MM-DD"),
-    from_audio: Path | None = typer.Option(None, help="Optional explicit audio path"),
+    from_audio: Path = typer.Option(..., help="Audio path (.m4a)"),
 ) -> None:
     settings = load_settings()
     state = load_state(settings)
-    audio = from_audio or latest_audio_for_date(settings, date)
-    artifact, _ = process_file(settings, state, audio, forced_type=None, apply_override=False)
+    artifact, _ = process_file(settings, state, from_audio, forced_type=None, apply_override=False)
     save_state(settings, state)
     typer.echo(f"Generated {artifact['date']} -> {artifact_path(settings, artifact['date'])}")
 
@@ -100,12 +89,7 @@ def plan_rollback(date: str = typer.Option(..., help="Date in YYYY-MM-DD")) -> N
 @app.command()
 def tui() -> None:
     settings = load_settings()
-    state = load_state(settings)
-    pending = len([f for f in list_audio_files(settings) if not is_processed(state, f)])
     typer.echo("DayOps status")
-    typer.echo(f"- Voice dir: {settings.voice_memos_dir}")
-    typer.echo(f"- Pending memos: {pending}")
-    typer.echo(f"- Auto apply: {settings.auto_apply}")
     typer.echo(f"- Artifacts: {artifacts_root(settings)}")
     typer.echo(f"- Snapshots: {settings.rollback_snapshot_dir}")
 

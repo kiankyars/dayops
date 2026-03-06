@@ -5,8 +5,6 @@ import hashlib
 import json
 import os
 import re
-import subprocess
-import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,39 +16,24 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from openai import OpenAI
-from send2trash import send2trash
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 GOOGLE_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-VENICE_BASE_URL = "https://api.venice.ai/api/v1"
 
 
 @dataclass
 class Settings:
-    voice_memos_dir: Path
-    plan_template_path: Path
     state_dir: Path
     rollback_snapshot_dir: Path
 
-    model_provider: str
     model_name: str
-    stt_provider: str
-
-    gemini_api_key: str | None
-    venice_inference_key: str | None
-    gemini_base_url: str
-    venice_base_url: str
+    gemini_api_key: str
     gemini_stt_model: str
-    venice_stt_model: str
 
     google_calendar_id: str
     google_oauth_token_path: Path
 
     timezone: str
-    auto_apply: bool
-    trash_processed_memos: bool
-    hydrate_max_retries: int
-    hydrate_retry_seconds: float
 
 
 def _env(name: str) -> str:
@@ -58,29 +41,6 @@ def _env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required env var: {name}")
     return value
-
-
-def _env_optional(name: str) -> str | None:
-    value = os.environ.get(name)
-    return value if value else None
-
-
-def _env_bool(name: str) -> bool:
-    return _env(name).strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str) -> int:
-    return int(_env(name))
-
-
-def _env_float(name: str) -> float:
-    return float(_env(name))
-
-
-def _require_key(value: str | None, key_name: str) -> str:
-    if value:
-        return value
-    raise RuntimeError(f"Missing required env var: {key_name}")
 
 
 def artifacts_root(settings: Settings) -> Path:
@@ -101,37 +61,16 @@ def load_settings() -> Settings:
     load_dotenv()
 
     settings = Settings(
-        voice_memos_dir=Path(_env("VOICE_MEMOS_DIR")).expanduser(),
-        plan_template_path=Path(_env("PLAN_TEMPLATE_PATH")).expanduser(),
         state_dir=Path(_env("DAYOPS_STATE_DIR")).expanduser(),
         rollback_snapshot_dir=Path(_env("DAYOPS_SNAPSHOT_DIR")).expanduser(),
-        model_provider=_env("MODEL_PROVIDER").strip().lower(),
         model_name=_env("MODEL_NAME").strip(),
-        stt_provider=_env("STT_PROVIDER").strip().lower(),
-        gemini_api_key=_env_optional("GEMINI_API_KEY"),
-        venice_inference_key=_env_optional("VENICE_INFERENCE_KEY"),
-        gemini_base_url=_env_optional("GEMINI_OPENAI_BASE_URL") or GOOGLE_OPENAI_BASE_URL,
-        venice_base_url=_env_optional("VENICE_BASE_URL") or VENICE_BASE_URL,
+        gemini_api_key=_env("GEMINI_API_KEY"),
         gemini_stt_model=_env("GEMINI_STT_MODEL"),
-        venice_stt_model=_env("VENICE_STT_MODEL"),
         google_calendar_id=_env("GOOGLE_CALENDAR_ID"),
         google_oauth_token_path=Path(_env("GOOGLE_OAUTH_TOKEN_PATH")).expanduser(),
         timezone=_env("TIMEZONE"),
-        auto_apply=_env_bool("AUTO_APPLY"),
-        trash_processed_memos=_env_bool("TRASH_PROCESSED_MEMOS"),
-        hydrate_max_retries=_env_int("HYDRATE_MAX_RETRIES"),
-        hydrate_retry_seconds=_env_float("HYDRATE_RETRY_SECONDS"),
     )
 
-    if settings.model_provider not in {"google", "venice"}:
-        raise RuntimeError("MODEL_PROVIDER must be 'google' or 'venice'")
-    if settings.stt_provider not in {"gemini", "venice"}:
-        raise RuntimeError("STT_PROVIDER must be 'gemini' or 'venice'")
-
-    if not settings.voice_memos_dir.exists():
-        raise RuntimeError(f"VOICE_MEMOS_DIR not found: {settings.voice_memos_dir}")
-    if not settings.plan_template_path.exists():
-        raise RuntimeError(f"PLAN_TEMPLATE_PATH not found: {settings.plan_template_path}")
     if not settings.google_oauth_token_path.exists():
         raise RuntimeError(f"GOOGLE_OAUTH_TOKEN_PATH not found: {settings.google_oauth_token_path}")
 
@@ -141,18 +80,8 @@ def load_settings() -> Settings:
     return settings
 
 
-def provider_client(settings: Settings, provider: str) -> OpenAI:
-    if provider == "google":
-        return OpenAI(
-            api_key=_require_key(settings.gemini_api_key, "GEMINI_API_KEY"),
-            base_url=settings.gemini_base_url,
-        )
-    if provider == "venice":
-        return OpenAI(
-            api_key=_require_key(settings.venice_inference_key, "VENICE_INFERENCE_KEY"),
-            base_url=settings.venice_base_url,
-        )
-    raise RuntimeError(f"Unsupported provider: {provider}")
+def provider_client(settings: Settings) -> OpenAI:
+    return OpenAI(api_key=settings.gemini_api_key, base_url=GOOGLE_OPENAI_BASE_URL)
 
 
 def load_state(settings: Settings) -> dict[str, Any]:
@@ -186,42 +115,6 @@ def mark_processed(state: dict[str, Any], file_path: Path, date_str: str) -> Non
     }
 
 
-def file_flags(file_path: Path) -> str:
-    result = subprocess.run(
-        ["stat", "-f", "%Sf", str(file_path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.stdout.strip() if result.returncode == 0 else ""
-
-
-def ensure_local_file(file_path: Path, settings: Settings) -> None:
-    for _ in range(settings.hydrate_max_retries):
-        if "dataless" in file_flags(file_path):
-            subprocess.run(["brctl", "download", str(file_path)], check=False)
-            time.sleep(settings.hydrate_retry_seconds)
-            continue
-        return
-
-
-def read_audio_bytes(file_path: Path, settings: Settings) -> bytes:
-    last_error: OSError | None = None
-    for _ in range(settings.hydrate_max_retries):
-        ensure_local_file(file_path, settings)
-        try:
-            return file_path.read_bytes()
-        except OSError as err:
-            last_error = err
-            if err.errno == 11:
-                time.sleep(settings.hydrate_retry_seconds)
-                continue
-            raise
-    if last_error:
-        raise last_error
-    raise RuntimeError(f"Unable to read audio file: {file_path}")
-
-
 def extract_recorded_datetime(file_path: Path) -> datetime:
     match = re.search(r"(\d{4}-\d{2}-\d{2}).*?(\d{2}\.\d{2}\.\d{2})", file_path.name)
     if not match:
@@ -231,7 +124,7 @@ def extract_recorded_datetime(file_path: Path) -> datetime:
 
 
 def llm_json(settings: Settings, prompt: str) -> dict[str, Any]:
-    client = provider_client(settings, settings.model_provider)
+    client = provider_client(settings)
     response = client.chat.completions.create(
         model=settings.model_name,
         response_format={"type": "json_object"},
@@ -244,46 +137,18 @@ def llm_json(settings: Settings, prompt: str) -> dict[str, Any]:
     return json.loads(content)
 
 
-def llm_text(settings: Settings, prompt: str) -> str:
-    client = provider_client(settings, settings.model_provider)
-    response = client.chat.completions.create(
-        model=settings.model_name,
-        messages=[
-            {"role": "system", "content": "Return plain text only."},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    return (response.choices[0].message.content or "").strip()
-
-
 def _audio_format(path: Path) -> str:
     ext = path.suffix.lower()
     if ext in {".wav", ".wave"}:
         return "wav"
-    if ext in {".mp3"}:
+    if ext == ".mp3":
         return "mp3"
-    # m4a is common from iOS voice memos; mp3 format tag works with most compat layers.
     return "mp3"
 
 
 def transcribe_audio_text(settings: Settings, audio_file: Path) -> str:
-    if settings.stt_provider == "venice":
-        client = provider_client(settings, "venice")
-        with audio_file.open("rb") as handle:
-            result = client.audio.transcriptions.create(
-                file=handle,
-                model=settings.venice_stt_model,
-                response_format="json",
-                timestamps=False,
-            )
-        text = getattr(result, "text", None) or ""
-        if not text:
-            raise RuntimeError("Venice STT returned empty text")
-        return text.strip()
-
-    # gemini STT via Google OpenAI-compatible chat endpoint with audio input
-    client = provider_client(settings, "google")
-    audio_b64 = base64.b64encode(read_audio_bytes(audio_file, settings)).decode("utf-8")
+    client = provider_client(settings)
+    audio_b64 = base64.b64encode(audio_file.read_bytes()).decode("utf-8")
     response = client.chat.completions.create(
         model=settings.gemini_stt_model,
         messages=[
@@ -373,7 +238,7 @@ def calendar_events(service, settings: Settings, date_str: str) -> list[dict[str
 
 
 def managed_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out = []
+    out: list[dict[str, Any]] = []
     for event in events:
         props = event.get("extendedProperties", {}).get("private", {})
         if props.get("dayopsManaged") == "true":
@@ -402,13 +267,7 @@ def normalize_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return cleaned
 
 
-def generate_plan(
-    settings: Settings,
-    intent: dict[str, Any],
-    audio_file: Path,
-    date_str: str,
-) -> dict[str, Any]:
-    template = settings.plan_template_path.read_text()
+def generate_plan(settings: Settings, intent: dict[str, Any], audio_file: Path, date_str: str) -> dict[str, Any]:
     service = calendar_service(settings)
     busy = calendar_events(service, settings, date_str)
 
@@ -426,7 +285,6 @@ Date: {date_str}
 Timezone: {intent.get('timezone', settings.timezone)}
 Memo type: {intent.get('memo_type')}
 Intent JSON: {json.dumps(intent)}
-Template: {template}
 Busy events: {json.dumps(busy)}
 Source audio: {audio_file.name}
 """.strip()
@@ -585,18 +443,6 @@ def rollback_day(settings: Settings, date_str: str) -> dict[str, int]:
     return {"creates": restored, "deletes": len(current), "locked": 0}
 
 
-def list_audio_files(settings: Settings) -> list[Path]:
-    files = [p for p in settings.voice_memos_dir.iterdir() if p.is_file() and p.suffix.lower() == ".m4a"]
-    return sorted(files, key=lambda p: p.stat().st_mtime)
-
-
-def latest_audio_for_date(settings: Settings, date_str: str) -> Path:
-    files = [p for p in list_audio_files(settings) if extract_recorded_datetime(p).strftime("%Y-%m-%d") == date_str]
-    if not files:
-        raise RuntimeError(f"No audio found for {date_str} in {settings.voice_memos_dir}")
-    return files[-1]
-
-
 def process_file(
     settings: Settings,
     state: dict[str, Any],
@@ -609,12 +455,10 @@ def process_file(
     artifact = generate_plan(settings, intent, audio_file, date_str)
     write_artifact(settings, artifact)
 
-    should_apply = settings.auto_apply if apply_override is None else apply_override
+    should_apply = True if apply_override is None else apply_override
     diff = None
     if should_apply:
         diff = apply_artifact(settings, artifact, future_only=artifact["memo_type"] == "revision")
 
     mark_processed(state, audio_file, date_str)
-    if settings.trash_processed_memos:
-        send2trash(str(audio_file))
     return artifact, diff

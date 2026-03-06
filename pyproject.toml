@@ -8,10 +8,11 @@ dependencies = [
     "fastapi>=0.118.0",
     "google-api-python-client>=2.184.0",
     "google-auth>=2.41.1",
+    "google-auth-oauthlib>=1.2.2",
+    "itsdangerous>=2.2.0",
     "openai>=1.108.1",
     "pydantic>=2.11.10",
     "python-multipart>=0.0.20",
-    "send2trash>=2.1.0",
     "typer>=0.19.2",
     "uvicorn>=0.37.0",
 ]
