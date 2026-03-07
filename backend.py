@@ -46,7 +46,7 @@ OAUTH_SCOPES = [
     CALENDAR_SCOPE,
 ]
 TIMEZONE_OPTIONS = {
-    "Pacific Time": "America/Los_Angeles",
+    "Pacific Time": "America/Denver",
     "Mountain Time": "America/Denver",
     "Central Time": "America/Chicago",
     "Eastern Time": "America/New_York",
@@ -222,9 +222,9 @@ def _upsert_user_from_oauth(userinfo: dict[str, Any], token_json: str) -> dict[s
     env_map["DAYOPS_SNAPSHOT_DIR"] = str(snapshots_dir)
     env_map["GOOGLE_OAUTH_TOKEN_PATH"] = str(token_path)
     env_map.setdefault("GOOGLE_CALENDAR_ID", "primary")
-    default_tz = os.getenv("DEFAULT_USER_TIMEZONE", "America/Los_Angeles")
+    default_tz = os.getenv("DEFAULT_USER_TIMEZONE", "America/Denver")
     if default_tz not in TIMEZONE_OPTIONS.values():
-        default_tz = "America/Los_Angeles"
+        default_tz = "America/Denver"
     env_map.setdefault("TIMEZONE", default_tz)
 
     api_key = str(profile.get("api_key", "")).strip() or _new_api_key()
@@ -404,7 +404,7 @@ def dashboard(request: Request) -> str:
         else f'<input type="text" name="google_calendar_id" value="{cal_id}" />'
     )
 
-    current_tz = tz if tz in TIMEZONE_OPTIONS.values() else "America/Los_Angeles"
+    current_tz = tz if tz in TIMEZONE_OPTIONS.values() else "America/Denver"
     tz_options = "".join(
         f'<option value="{escape(value)}"' + (' selected' if value == current_tz else '') + f">{escape(label)}</option>"
         for label, value in TIMEZONE_OPTIONS.items()
@@ -466,7 +466,7 @@ def update_config(
     env_map = {str(k): str(v) for k, v in env_map.items()}
     selected_timezone = timezone_value.strip()
     if selected_timezone not in TIMEZONE_OPTIONS.values():
-        selected_timezone = "America/Los_Angeles"
+        selected_timezone = "America/Denver"
     env_map["TIMEZONE"] = selected_timezone
     env_map["GOOGLE_CALENDAR_ID"] = calendar_id.strip() or "primary"
     current["env"] = env_map
