@@ -7,7 +7,7 @@ Minimal backend for voice-memo planning into Google Calendar.
 1. User signs in with Google and grants Calendar scope.
 2. Backend stores that user's refresh token under `.dayops_state/users/<google-sub>/`.
 3. Backend generates a unique API key for that user.
-4. Client uploads `.m4a` to `/ingest` with `x-api-key`.
+4. Client uploads `.m4a` to `/revise` with `x-api-key`.
 5. Day plan is generated and applied to that user's calendar.
 
 ## Web UI
@@ -20,9 +20,8 @@ Minimal backend for voice-memo planning into Google Calendar.
 
 ## API
 
-- `POST /ingest` (`x-api-key`, multipart `file=@memo.m4a`)
-- `POST /plan/revise`
-- `POST /plan/rollback`
+- `POST /revise` (`x-api-key`, multipart `file=@memo.m4a`, optional form `apply=true`)
+- `POST /rollback` (`x-api-key`, JSON body `{"date":"YYYY-MM-DD"}`)
 
 ## GCP setup
 

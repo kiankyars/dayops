@@ -302,16 +302,6 @@ def _process_uploaded_audio(
             temp_path.unlink(missing_ok=True)
 
 
-class IngestResponse(BaseModel):
-    user_id: str
-    stored_file: str
-    date: str
-    memo_type: str
-    artifact_path: str
-    applied: bool
-    diff: dict[str, int] | None
-
-
 class DateRequest(BaseModel):
     date: str
 
@@ -491,27 +481,7 @@ def update_config(
     return RedirectResponse("/app", status_code=302)
 
 
-@app.post("/ingest", response_model=IngestResponse)
-def ingest(file: UploadFile = File(...), x_api_key: str | None = Header(default=None)) -> IngestResponse:
-    if not file.filename or not file.filename.lower().endswith(".m4a"):
-        raise HTTPException(status_code=400, detail="file_must_be_m4a")
-
-    profile = _require_api_profile(x_api_key)
-    artifact, diff, temp_path = _process_uploaded_audio(profile, file)
-    with _env_overrides(profile["env"]):
-        settings = load_settings()
-        return IngestResponse(
-            user_id=profile["user_id"],
-            stored_file=str(temp_path),
-            date=artifact["date"],
-            memo_type=artifact["memo_type"],
-            artifact_path=str(artifact_path(settings, artifact["date"])),
-            applied=diff is not None,
-            diff=diff,
-        )
-
-
-@app.post("/plan/revise")
+@app.post("/revise")
 def plan_revise(
     file: UploadFile = File(...),
     apply: bool = Form(True),
@@ -530,7 +500,7 @@ def plan_revise(
         }
 
 
-@app.post("/plan/rollback")
+@app.post("/rollback")
 def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
