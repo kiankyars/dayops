@@ -266,7 +266,12 @@ def _calendar_choices(profile: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
-def _process_uploaded_audio(profile: dict[str, Any], upload: UploadFile) -> tuple[dict[str, Any], dict[str, int] | None, Path]:
+def _process_uploaded_audio(
+    profile: dict[str, Any],
+    upload: UploadFile,
+    forced_type: str | None = None,
+    apply_override: bool | None = None,
+) -> tuple[dict[str, Any], dict[str, int] | None, Path]:
     with _env_overrides(profile["env"]):
         settings = load_settings()
         state = load_state(settings)
@@ -284,7 +289,13 @@ def _process_uploaded_audio(profile: dict[str, Any], upload: UploadFile) -> tupl
             temp_path = Path(handle.name)
 
         try:
-            artifact, diff = process_file(settings, state, temp_path, forced_type=None, apply_override=None)
+            artifact, diff = process_file(
+                settings,
+                state,
+                temp_path,
+                forced_type=forced_type,
+                apply_override=apply_override,
+            )
             save_state(settings, state)
             return artifact, diff, temp_path
         finally:
@@ -301,9 +312,8 @@ class IngestResponse(BaseModel):
     diff: dict[str, int] | None
 
 
-class ReviseRequest(BaseModel):
-    from_audio: str
-    apply: bool = True
+class DateRequest(BaseModel):
+    date: str
 
 
 @app.get("/healthz")
@@ -502,16 +512,17 @@ def ingest(file: UploadFile = File(...), x_api_key: str | None = Header(default=
 
 
 @app.post("/plan/revise")
-def plan_revise(payload: ReviseRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+def plan_revise(
+    file: UploadFile = File(...),
+    apply: bool = Form(True),
+    x_api_key: str | None = Header(default=None),
+) -> dict[str, Any]:
+    if not file.filename or not file.filename.lower().endswith(".m4a"):
+        raise HTTPException(status_code=400, detail="file_must_be_m4a")
     profile = _require_api_profile(x_api_key)
+    artifact, diff, _ = _process_uploaded_audio(profile, file, forced_type="revision", apply_override=apply)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        state = load_state(settings)
-        audio = Path(payload.from_audio).expanduser()
-        if not audio.exists():
-            raise HTTPException(status_code=404, detail=f"audio_not_found: {audio}")
-        artifact, diff = process_file(settings, state, audio, forced_type="revision", apply_override=payload.apply)
-        save_state(settings, state)
         return {
             "date": artifact["date"],
             "artifact_path": str(artifact_path(settings, artifact["date"])),
@@ -520,11 +531,11 @@ def plan_revise(payload: ReviseRequest, x_api_key: str | None = Header(default=N
 
 
 @app.post("/plan/rollback")
-def plan_rollback(date: str | None = None, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        date_value = (date or "").strip()
+        date_value = payload.date.strip()
         if not date_value:
             raise HTTPException(status_code=400, detail="date_required")
         diff = rollback_day(settings, date_value)

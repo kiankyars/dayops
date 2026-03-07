@@ -208,11 +208,19 @@ def transcribe_audio_text(settings: Settings, audio_file: Path) -> str:
 
 def transcribe_intent(settings: Settings, audio_file: Path, forced_type: str | None = None) -> dict[str, Any]:
     transcript = transcribe_audio_text(settings, audio_file)
-    forced_line = f"Set memo_type to '{forced_type}'." if forced_type else ""
-    prompt = f"""
-You parse a planning transcript into strict JSON.
-{forced_line}
-Return JSON with keys:
+    if forced_type:
+        schema = """
+- date: YYYY-MM-DD
+- timezone: IANA timezone
+- high_level_intent: string
+- constraints: string[]
+- tasks: string[]
+- requested_blocks: object[]
+- raw_summary: string
+""".strip()
+        forced_line = f"memo_type is fixed to '{forced_type}'. Do not classify memo_type."
+    else:
+        schema = """
 - memo_type: morning_plan or revision
 - date: YYYY-MM-DD
 - timezone: IANA timezone
@@ -221,13 +229,22 @@ Return JSON with keys:
 - tasks: string[]
 - requested_blocks: object[]
 - raw_summary: string
+""".strip()
+        forced_line = "Classify memo_type."
+    prompt = f"""
+You parse a planning transcript into strict JSON.
+{forced_line}
+Return JSON with keys:
+{schema}
 JSON only.
 
 Transcript:
 {transcript}
 """.strip()
     data = llm_json(settings, prompt)
-    if data.get("memo_type") not in {"morning_plan", "revision"}:
+    if forced_type in {"morning_plan", "revision"}:
+        data["memo_type"] = forced_type
+    elif data.get("memo_type") not in {"morning_plan", "revision"}:
         data["memo_type"] = "morning_plan"
     return data
 
