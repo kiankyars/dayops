@@ -210,7 +210,6 @@ def transcribe_intent(settings: Settings, audio_file: Path, forced_type: str | N
     transcript = transcribe_audio_text(settings, audio_file)
     if forced_type:
         schema = """
-- date: YYYY-MM-DD
 - timezone: IANA timezone
 - high_level_intent: string
 - constraints: string[]
@@ -222,7 +221,6 @@ def transcribe_intent(settings: Settings, audio_file: Path, forced_type: str | N
     else:
         schema = """
 - memo_type: morning_plan or revision
-- date: YYYY-MM-DD
 - timezone: IANA timezone
 - high_level_intent: string
 - constraints: string[]
@@ -520,7 +518,7 @@ def process_file(
     date_override: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int] | None]:
     intent = transcribe_intent(settings, audio_file, forced_type=forced_type)
-    date_str = (date_override or "").strip() or intent.get("date") or extract_recorded_datetime(audio_file).strftime("%Y-%m-%d")
+    date_str = (date_override or "").strip() or extract_recorded_datetime(audio_file).strftime("%Y-%m-%d")
     artifact = generate_plan(settings, intent, audio_file, date_str)
     write_artifact(settings, artifact)
 

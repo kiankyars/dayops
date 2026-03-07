@@ -308,6 +308,15 @@ class DateRequest(BaseModel):
     date: str
 
 
+class PlanResponse(BaseModel):
+    user_id: str
+    date: str
+    memo_type: str
+    artifact_path: str
+    applied: bool
+    diff: dict[str, int] | None
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -487,18 +496,21 @@ def update_config(
 def plan_revise(
     file: UploadFile = File(...),
     apply: bool = Form(True),
-    date: str | None = Form(default=None),
+    date: str = Form(...),
     x_api_key: str | None = Header(default=None),
 ) -> dict[str, Any]:
     if not file.filename or not file.filename.lower().endswith(".m4a"):
         raise HTTPException(status_code=400, detail="file_must_be_m4a")
+    date_value = date.strip()
+    if not date_value:
+        raise HTTPException(status_code=400, detail="date_required")
     profile = _require_api_profile(x_api_key)
     artifact, diff, _ = _process_uploaded_audio(
         profile,
         file,
         forced_type="revision",
         apply_override=apply,
-        date_override=date,
+        date_override=date_value,
     )
     with _env_overrides(profile["env"]):
         settings = load_settings()
@@ -507,6 +519,37 @@ def plan_revise(
             "artifact_path": str(artifact_path(settings, artifact["date"])),
             "diff": diff,
         }
+
+
+@app.post("/ingest", response_model=PlanResponse)
+def ingest(
+    file: UploadFile = File(...),
+    date: str = Form(...),
+    x_api_key: str | None = Header(default=None),
+) -> PlanResponse:
+    if not file.filename or not file.filename.lower().endswith(".m4a"):
+        raise HTTPException(status_code=400, detail="file_must_be_m4a")
+    date_value = date.strip()
+    if not date_value:
+        raise HTTPException(status_code=400, detail="date_required")
+    profile = _require_api_profile(x_api_key)
+    artifact, diff, _ = _process_uploaded_audio(
+        profile,
+        file,
+        forced_type="morning_plan",
+        apply_override=True,
+        date_override=date_value,
+    )
+    with _env_overrides(profile["env"]):
+        settings = load_settings()
+        return PlanResponse(
+            user_id=profile["user_id"],
+            date=artifact["date"],
+            memo_type=artifact["memo_type"],
+            artifact_path=str(artifact_path(settings, artifact["date"])),
+            applied=diff is not None,
+            diff=diff,
+        )
 
 
 @app.post("/rollback")
