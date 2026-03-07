@@ -270,7 +270,6 @@ def _process_uploaded_audio(
     profile: dict[str, Any],
     upload: UploadFile,
     forced_type: str | None = None,
-    apply_override: bool | None = None,
     date_override: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int] | None, Path]:
     with _env_overrides(profile["env"]):
@@ -295,7 +294,6 @@ def _process_uploaded_audio(
                 state,
                 temp_path,
                 forced_type=forced_type,
-                apply_override=apply_override,
                 date_override=date_override,
             )
             save_state(settings, state)
@@ -508,7 +506,6 @@ def plan_revise(
         profile,
         file,
         forced_type="revision",
-        apply_override=True,
         date_override=date_value,
     )
     with _env_overrides(profile["env"]):
@@ -536,7 +533,6 @@ def ingest(
         profile,
         file,
         forced_type="morning_plan",
-        apply_override=True,
         date_override=date_value,
     )
     with _env_overrides(profile["env"]):

@@ -505,7 +505,6 @@ def process_file(
     state: dict[str, Any],
     audio_file: Path,
     forced_type: str | None,
-    apply_override: bool | None,
     date_override: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int] | None]:
     intent = transcribe_intent(settings, audio_file, forced_type=forced_type)
@@ -515,10 +514,7 @@ def process_file(
     artifact = generate_plan(settings, intent, audio_file, date_str)
     write_artifact(settings, artifact)
 
-    should_apply = True if apply_override is None else apply_override
-    diff = None
-    if should_apply:
-        diff = apply_artifact(settings, artifact, future_only=artifact["memo_type"] == "revision")
+    diff = apply_artifact(settings, artifact, future_only=artifact["memo_type"] == "revision")
 
     mark_processed(state, audio_file, date_str)
     return artifact, diff
