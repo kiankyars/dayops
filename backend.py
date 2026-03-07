@@ -306,10 +306,6 @@ class ReviseRequest(BaseModel):
     apply: bool = True
 
 
-class DateRequest(BaseModel):
-    date: str
-
-
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -422,7 +418,8 @@ def dashboard(request: Request) -> str:
 
     <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;margin-bottom:14px;">
       <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">API Key</div>
-      <code style="display:block;word-break:break-all;font-size:13px;">{api_key}</code>
+      <code id="api-key" style="display:block;word-break:break-all;font-size:13px;">{api_key}</code>
+      <button type="button" onclick="copyApiKey()" style="margin-top:10px;padding:8px 12px;border:1px solid #d1d5db;border-radius:10px;background:white;color:#111827;font-weight:600;">Copy API Key</button>
       <form method="post" action="/app/rotate-key" style="margin-top:12px;">
         <button type="submit" style="padding:8px 12px;border:1px solid #111827;border-radius:10px;background:#111827;color:white;font-weight:600;">Rotate API Key</button>
       </form>
@@ -440,6 +437,12 @@ def dashboard(request: Request) -> str:
       </form>
     </div>
     <p style="margin-top:16px;"><a href="/logout" style="color:#4b5563;">Logout</a></p>
+    <script>
+      function copyApiKey() {{
+        const value = document.getElementById('api-key').innerText;
+        navigator.clipboard.writeText(value);
+      }}
+    </script>
   </body>
 </html>
 """
@@ -517,15 +520,15 @@ def plan_revise(payload: ReviseRequest, x_api_key: str | None = Header(default=N
 
 
 @app.post("/plan/rollback")
-def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+def plan_rollback(date: str | None = None, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        date = payload.date.strip()
-        if not date:
+        date_value = (date or "").strip()
+        if not date_value:
             raise HTTPException(status_code=400, detail="date_required")
-        diff = rollback_day(settings, date)
-        return {"date": date, "diff": diff}
+        diff = rollback_day(settings, date_value)
+        return {"date": date_value, "diff": diff}
 
 
 def run_server() -> None:
