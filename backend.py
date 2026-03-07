@@ -129,10 +129,13 @@ def _require_api_profile(x_api_key: str | None) -> dict[str, Any]:
             env_map = profile.get("env")
             if not isinstance(env_map, dict):
                 raise HTTPException(status_code=400, detail="user_env_missing")
+            env_out = {str(k): str(v) for k, v in env_map.items()}
+            if "DAYOPS_SNAPSHOT_DIR" not in env_out and "DAYOPS_STATE_DIR" in env_out:
+                env_out["DAYOPS_SNAPSHOT_DIR"] = str(Path(env_out["DAYOPS_STATE_DIR"]) / "snapshots")
             return {
                 "user_id": user_id,
                 "api_key": expected,
-                "env": {str(k): str(v) for k, v in env_map.items()},
+                "env": env_out,
                 "email": str(profile.get("email", "")),
             }
     raise HTTPException(status_code=401, detail="invalid_api_key")
@@ -210,16 +213,19 @@ def _upsert_user_from_oauth(userinfo: dict[str, Any], token_json: str) -> dict[s
 
     user_root = _user_root(google_sub)
     state_dir = user_root / "state"
+    snapshots_dir = state_dir / "snapshots"
     token_path = user_root / "google_oauth_token.json"
 
     user_root.mkdir(parents=True, exist_ok=True)
     state_dir.mkdir(parents=True, exist_ok=True)
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
     token_path.write_text(token_json)
 
     env_map = profile.get("env") if isinstance(profile.get("env"), dict) else {}
     env_map = {str(k): str(v) for k, v in env_map.items()}
 
     env_map["DAYOPS_STATE_DIR"] = str(state_dir)
+    env_map["DAYOPS_SNAPSHOT_DIR"] = str(snapshots_dir)
     env_map["GOOGLE_OAUTH_TOKEN_PATH"] = str(token_path)
     env_map.setdefault("GOOGLE_CALENDAR_ID", "primary")
     default_tz = os.getenv("DEFAULT_USER_TIMEZONE", "America/Los_Angeles")
@@ -568,15 +574,19 @@ def plan_revise(payload: ReviseRequest, x_api_key: str | None = Header(default=N
 
 
 @app.post("/plan/rollback")
-def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+def plan_rollback(
+    payload: DateRequest | None = None,
+    date: str | None = None,
+    x_api_key: str | None = Header(default=None),
+) -> dict[str, Any]:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        try:
-            diff = rollback_day(settings, payload.date)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=410, detail=str(exc)) from exc
-        return {"date": payload.date, "diff": diff}
+        date_value = (date or (payload.date if payload else "")).strip()
+        if not date_value:
+            raise HTTPException(status_code=400, detail="date_required")
+        diff = rollback_day(settings, date_value)
+        return {"date": date_value, "diff": diff}
 
 
 def run_server() -> None:

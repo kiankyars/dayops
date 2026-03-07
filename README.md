@@ -63,11 +63,10 @@ User-specific values are stored in `.dayops_state/users.json` and managed by the
 - `GOOGLE_OAUTH_TOKEN_PATH`
 - `GOOGLE_CALENDAR_ID`
 - `TIMEZONE`
-- user state dir
+- user state/snapshot dirs
 
 ## Notes
 
 - `plan.md` is kept in repo but no longer used by runtime.
 - Voice memo directory persistence was removed; uploads are processed from a temp file and deleted.
 - Session secret is auto-generated once and persisted at `.dayops_state/session_secret`.
-- Snapshots were removed; rollback endpoint is disabled.
