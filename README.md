@@ -21,10 +21,6 @@ Minimal backend for voice-memo planning into Google Calendar.
 ## API
 
 - `POST /ingest` (`x-api-key`, multipart `file=@memo.m4a`)
-- `POST /run` (no-op; returns 0)
-- `POST /plan/generate` (`from_audio` required)
-- `POST /plan/preview`
-- `POST /plan/apply`
 - `POST /plan/revise`
 - `POST /plan/rollback`
 

@@ -19,17 +19,14 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
 from dayops_core import (
-    apply_artifact,
     artifact_path,
     calendar_service,
-    load_artifact,
     load_settings,
     load_state,
-    preview_apply_diff,
     process_file,
     rollback_day,
     save_state,
@@ -129,13 +126,10 @@ def _require_api_profile(x_api_key: str | None) -> dict[str, Any]:
             env_map = profile.get("env")
             if not isinstance(env_map, dict):
                 raise HTTPException(status_code=400, detail="user_env_missing")
-            env_out = {str(k): str(v) for k, v in env_map.items()}
-            if "DAYOPS_SNAPSHOT_DIR" not in env_out and "DAYOPS_STATE_DIR" in env_out:
-                env_out["DAYOPS_SNAPSHOT_DIR"] = str(Path(env_out["DAYOPS_STATE_DIR"]) / "snapshots")
             return {
                 "user_id": user_id,
                 "api_key": expected,
-                "env": env_out,
+                "env": {str(k): str(v) for k, v in env_map.items()},
                 "email": str(profile.get("email", "")),
             }
     raise HTTPException(status_code=401, detail="invalid_api_key")
@@ -297,11 +291,6 @@ def _process_uploaded_audio(profile: dict[str, Any], upload: UploadFile) -> tupl
             temp_path.unlink(missing_ok=True)
 
 
-class RunResponse(BaseModel):
-    processed: int
-    files: list[str]
-
-
 class IngestResponse(BaseModel):
     user_id: str
     stored_file: str
@@ -312,18 +301,13 @@ class IngestResponse(BaseModel):
     diff: dict[str, int] | None
 
 
-class GenerateRequest(BaseModel):
-    date: str = Field(..., description="YYYY-MM-DD")
-    from_audio: str | None = None
-
-
-class DateRequest(BaseModel):
-    date: str = Field(..., description="YYYY-MM-DD")
-
-
 class ReviseRequest(BaseModel):
     from_audio: str
     apply: bool = True
+
+
+class DateRequest(BaseModel):
+    date: str
 
 
 @app.get("/healthz")
@@ -511,50 +495,6 @@ def ingest(file: UploadFile = File(...), x_api_key: str | None = Header(default=
         )
 
 
-@app.post("/run", response_model=RunResponse)
-def run_all() -> RunResponse:
-    return RunResponse(processed=0, files=[])
-
-
-@app.post("/plan/generate")
-def plan_generate(payload: GenerateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
-    profile = _require_api_profile(x_api_key)
-    if not payload.from_audio:
-        raise HTTPException(status_code=400, detail="from_audio_required")
-
-    with _env_overrides(profile["env"]):
-        settings = load_settings()
-        state = load_state(settings)
-        audio = Path(payload.from_audio).expanduser()
-        if not audio.exists():
-            raise HTTPException(status_code=404, detail=f"audio_not_found: {audio}")
-        artifact, _ = process_file(settings, state, audio, forced_type=None, apply_override=False)
-        save_state(settings, state)
-        return {"date": artifact["date"], "artifact_path": str(artifact_path(settings, artifact["date"]))}
-
-
-@app.post("/plan/preview")
-def plan_preview(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
-    profile = _require_api_profile(x_api_key)
-    with _env_overrides(profile["env"]):
-        settings = load_settings()
-        artifact = load_artifact(settings, payload.date)
-        future_only = artifact["memo_type"] == "revision"
-        diff = preview_apply_diff(settings, artifact, future_only=future_only)
-        return {"date": payload.date, "future_only": future_only, "diff": diff}
-
-
-@app.post("/plan/apply")
-def plan_apply(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
-    profile = _require_api_profile(x_api_key)
-    with _env_overrides(profile["env"]):
-        settings = load_settings()
-        artifact = load_artifact(settings, payload.date)
-        future_only = artifact["memo_type"] == "revision"
-        diff = apply_artifact(settings, artifact, future_only=future_only)
-        return {"date": payload.date, "future_only": future_only, "diff": diff}
-
-
 @app.post("/plan/revise")
 def plan_revise(payload: ReviseRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
     profile = _require_api_profile(x_api_key)
@@ -574,19 +514,15 @@ def plan_revise(payload: ReviseRequest, x_api_key: str | None = Header(default=N
 
 
 @app.post("/plan/rollback")
-def plan_rollback(
-    payload: DateRequest | None = None,
-    date: str | None = None,
-    x_api_key: str | None = Header(default=None),
-) -> dict[str, Any]:
+def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        date_value = (date or (payload.date if payload else "")).strip()
-        if not date_value:
+        date = payload.date.strip()
+        if not date:
             raise HTTPException(status_code=400, detail="date_required")
-        diff = rollback_day(settings, date_value)
-        return {"date": date_value, "diff": diff}
+        diff = rollback_day(settings, date)
+        return {"date": date, "diff": diff}
 
 
 def run_server() -> None:
