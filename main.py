@@ -21,11 +21,21 @@ app.add_typer(plan_app, name="plan")
 
 
 @app.command()
-def run(from_audio: Path = typer.Option(..., help="Audio path (.m4a)")) -> None:
+def run(
+    from_audio: Path = typer.Option(..., help="Audio path (.m4a)"),
+    date: str = typer.Option(..., help="Date in YYYY-MM-DD"),
+) -> None:
     settings = load_settings()
     state = load_state(settings)
 
-    artifact, diff = process_file(settings, state, from_audio, forced_type=None, apply_override=None)
+    artifact, diff = process_file(
+        settings,
+        state,
+        from_audio,
+        forced_type=None,
+        apply_override=None,
+        date_override=date,
+    )
     typer.echo(f"Processed {from_audio.name} -> {artifact['date']} ({artifact['memo_type']})")
     if diff:
         typer.echo(f"Calendar: create={diff['creates']} delete={diff['deletes']} locked={diff['locked']}")
@@ -36,10 +46,18 @@ def run(from_audio: Path = typer.Option(..., help="Audio path (.m4a)")) -> None:
 @plan_app.command("generate")
 def plan_generate(
     from_audio: Path = typer.Option(..., help="Audio path (.m4a)"),
+    date: str = typer.Option(..., help="Date in YYYY-MM-DD"),
 ) -> None:
     settings = load_settings()
     state = load_state(settings)
-    artifact, _ = process_file(settings, state, from_audio, forced_type=None, apply_override=False)
+    artifact, _ = process_file(
+        settings,
+        state,
+        from_audio,
+        forced_type=None,
+        apply_override=False,
+        date_override=date,
+    )
     save_state(settings, state)
     typer.echo(f"Generated {artifact['date']} -> {artifact_path(settings, artifact['date'])}")
 
@@ -68,11 +86,19 @@ def plan_apply(date: str = typer.Option(..., help="Date in YYYY-MM-DD")) -> None
 @plan_app.command("revise")
 def plan_revise(
     from_audio: Path = typer.Option(..., help="Revision audio path"),
+    date: str = typer.Option(..., help="Date in YYYY-MM-DD"),
     apply: bool = typer.Option(True, help="Apply revision immediately"),
 ) -> None:
     settings = load_settings()
     state = load_state(settings)
-    artifact, diff = process_file(settings, state, from_audio, forced_type="revision", apply_override=apply)
+    artifact, diff = process_file(
+        settings,
+        state,
+        from_audio,
+        forced_type="revision",
+        apply_override=apply,
+        date_override=date,
+    )
     save_state(settings, state)
     typer.echo(f"Revision ready {artifact['date']} -> {artifact_path(settings, artifact['date'])}")
     if diff:

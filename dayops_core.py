@@ -4,7 +4,6 @@ import base64
 import hashlib
 import json
 import os
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -128,14 +127,6 @@ def mark_processed(state: dict[str, Any], file_path: Path, date_str: str) -> Non
         "date": date_str,
         "processed_at": datetime.now(UTC).isoformat(),
     }
-
-
-def extract_recorded_datetime(file_path: Path) -> datetime:
-    match = re.search(r"(\d{4}-\d{2}-\d{2}).*?(\d{2}\.\d{2}\.\d{2})", file_path.name)
-    if not match:
-        return datetime.fromtimestamp(file_path.stat().st_mtime, tz=UTC)
-    parsed = datetime.strptime(f"{match.group(1)} {match.group(2)}", "%Y-%m-%d %H.%M.%S")
-    return parsed.replace(tzinfo=UTC)
 
 
 def llm_json(settings: Settings, prompt: str) -> dict[str, Any]:
@@ -518,7 +509,9 @@ def process_file(
     date_override: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int] | None]:
     intent = transcribe_intent(settings, audio_file, forced_type=forced_type)
-    date_str = (date_override or "").strip() or extract_recorded_datetime(audio_file).strftime("%Y-%m-%d")
+    date_str = (date_override or "").strip()
+    if not date_str:
+        raise RuntimeError("date_override_required")
     artifact = generate_plan(settings, intent, audio_file, date_str)
     write_artifact(settings, artifact)
 
