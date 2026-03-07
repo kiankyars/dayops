@@ -63,6 +63,6 @@ User-specific values are stored in `.dayops_state/users.json` and managed by the
 
 ## Notes
 
-- `plan.md` is kept in repo but no longer used by runtime.
 - Voice memo directory persistence was removed; uploads are processed from a temp file and deleted.
 - Session secret is auto-generated once and persisted at `.dayops_state/session_secret`.
+- CLI was removed; runtime is backend-only (`dayops-api`).
