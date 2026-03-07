@@ -310,9 +310,13 @@ class PlanResponse(BaseModel):
     user_id: str
     date: str
     memo_type: str
+    summary: str
+    notes_markdown: str
     artifact_path: str
     applied: bool
-    diff: dict[str, int] | None
+    creates: int
+    deletes: int
+    locked: int
 
 
 @app.get("/healthz")
@@ -427,10 +431,16 @@ def dashboard(request: Request) -> str:
 
     <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;margin-bottom:14px;">
       <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">API Key</div>
-      <code id="api-key" style="display:block;word-break:break-all;font-size:13px;">{api_key}</code>
-      <button type="button" onclick="copyApiKey()" style="margin-top:10px;padding:8px 12px;border:1px solid #d1d5db;border-radius:10px;background:white;color:#111827;font-weight:600;">Copy API Key</button>
+      <code id="api-key" style="display:block;word-break:break-all;font-size:13px;background:#f3f4f6;padding:8px;border-radius:8px;margin-bottom:12px;">{api_key}</code>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button type="button" onclick="copyApiKey()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid #d1d5db;border-radius:10px;background:white;color:#111827;font-weight:600;cursor:pointer;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          Copy API Key
+        </button>
+        <span id="copy-badge" style="display:none;font-size:12px;color:#059669;font-weight:600;background:#ecfdf5;padding:4px 8px;border-radius:6px;border:1px solid #10b981;">Copied!</span>
+      </div>
       <form method="post" action="/app/rotate-key" style="margin-top:12px;">
-        <button type="submit" style="padding:8px 12px;border:1px solid #111827;border-radius:10px;background:#111827;color:white;font-weight:600;">Rotate API Key</button>
+        <button type="submit" style="padding:8px 12px;border:1px solid #111827;border-radius:10px;background:#111827;color:white;font-weight:600;cursor:pointer;">Rotate API Key</button>
       </form>
     </div>
 
@@ -449,7 +459,11 @@ def dashboard(request: Request) -> str:
     <script>
       function copyApiKey() {{
         const value = document.getElementById('api-key').innerText;
-        navigator.clipboard.writeText(value);
+        navigator.clipboard.writeText(value).then(() => {{
+          const badge = document.getElementById('copy-badge');
+          badge.style.display = 'inline-block';
+          setTimeout(() => {{ badge.style.display = 'none'; }}, 2000);
+        }});
       }}
     </script>
   </body>
@@ -490,12 +504,12 @@ def update_config(
     return RedirectResponse("/app", status_code=302)
 
 
-@app.post("/revise")
+@app.post("/revise", response_model=PlanResponse)
 def plan_revise(
     file: UploadFile = File(...),
     date: str = Form(...),
     x_api_key: str | None = Header(default=None),
-) -> dict[str, Any]:
+) -> PlanResponse:
     if not file.filename or not file.filename.lower().endswith(".m4a"):
         raise HTTPException(status_code=400, detail="file_must_be_m4a")
     date_value = date.strip()
@@ -510,11 +524,18 @@ def plan_revise(
     )
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        return {
-            "date": artifact["date"],
-            "artifact_path": str(artifact_path(settings, artifact["date"])),
-            "diff": diff,
-        }
+        return PlanResponse(
+            user_id=profile["user_id"],
+            date=artifact["date"],
+            memo_type=artifact["memo_type"],
+            summary=artifact.get("summary", ""),
+            notes_markdown=artifact.get("notes_markdown", ""),
+            artifact_path=str(artifact_path(settings, artifact["date"])),
+            applied=diff is not None,
+            creates=diff.get("creates", 0) if diff else 0,
+            deletes=diff.get("deletes", 0) if diff else 0,
+            locked=diff.get("locked", 0) if diff else 0,
+        )
 
 
 @app.post("/ingest", response_model=PlanResponse)
@@ -541,14 +562,18 @@ def ingest(
             user_id=profile["user_id"],
             date=artifact["date"],
             memo_type=artifact["memo_type"],
+            summary=artifact.get("summary", ""),
+            notes_markdown=artifact.get("notes_markdown", ""),
             artifact_path=str(artifact_path(settings, artifact["date"])),
             applied=diff is not None,
-            diff=diff,
+            creates=diff.get("creates", 0) if diff else 0,
+            deletes=diff.get("deletes", 0) if diff else 0,
+            locked=diff.get("locked", 0) if diff else 0,
         )
 
 
-@app.post("/rollback")
-def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> dict[str, Any]:
+@app.post("/rollback", response_model=PlanResponse)
+def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> PlanResponse:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
@@ -556,7 +581,18 @@ def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=N
         if not date_value:
             raise HTTPException(status_code=400, detail="date_required")
         diff = rollback_day(settings, date_value)
-        return {"date": date_value, "diff": diff}
+        return PlanResponse(
+            user_id=profile["user_id"],
+            date=date_value,
+            memo_type="rollback",
+            summary=f"Rolled back {date_value}.",
+            notes_markdown="",
+            artifact_path="",
+            applied=True,
+            creates=diff.get("creates", 0) if diff else 0,
+            deletes=diff.get("deletes", 0) if diff else 0,
+            locked=diff.get("locked", 0) if diff else 0,
+        )
 
 
 def run_server() -> None:
