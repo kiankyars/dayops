@@ -366,7 +366,10 @@ def auth_google_callback(request: Request) -> RedirectResponse:
     _allow_local_insecure_oauth_transport(redirect_uri)
     flow.redirect_uri = redirect_uri
     flow.code_verifier = code_verifier
-    flow.fetch_token(authorization_response=str(request.url))
+    # Behind ingress, request.url may appear as http internally.
+    # Force token exchange to use the configured redirect URI scheme/host.
+    authorization_response = f"{redirect_uri}?{request.url.query}"
+    flow.fetch_token(authorization_response=authorization_response)
 
     userinfo = _fetch_google_userinfo(flow.credentials.token)
     created = _upsert_user_from_oauth(userinfo, flow.credentials.to_json())
