@@ -21,7 +21,7 @@ Minimal backend for voice-memo planning into Google Calendar.
 ## API
 
 - `POST /ingest` (`x-api-key`, multipart `file=@memo.m4a`, required form `date=YYYY-MM-DD`)
-- `POST /revise` (`x-api-key`, multipart `file=@memo.m4a`, required form `date=YYYY-MM-DD`, optional form `apply=true`)
+- `POST /revise` (`x-api-key`, multipart `file=@memo.m4a`, required form `date=YYYY-MM-DD`)
 - `POST /rollback` (`x-api-key`, JSON body `{"date":"YYYY-MM-DD"}`)
 
 ## GCP setup

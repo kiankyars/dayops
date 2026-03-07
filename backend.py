@@ -495,7 +495,6 @@ def update_config(
 @app.post("/revise")
 def plan_revise(
     file: UploadFile = File(...),
-    apply: bool = Form(True),
     date: str = Form(...),
     x_api_key: str | None = Header(default=None),
 ) -> dict[str, Any]:
@@ -509,7 +508,7 @@ def plan_revise(
         profile,
         file,
         forced_type="revision",
-        apply_override=apply,
+        apply_override=True,
         date_override=date_value,
     )
     with _env_overrides(profile["env"]):
