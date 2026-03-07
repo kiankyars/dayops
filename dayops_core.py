@@ -517,9 +517,10 @@ def process_file(
     audio_file: Path,
     forced_type: str | None,
     apply_override: bool | None,
+    date_override: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int] | None]:
     intent = transcribe_intent(settings, audio_file, forced_type=forced_type)
-    date_str = intent.get("date") or extract_recorded_datetime(audio_file).strftime("%Y-%m-%d")
+    date_str = (date_override or "").strip() or intent.get("date") or extract_recorded_datetime(audio_file).strftime("%Y-%m-%d")
     artifact = generate_plan(settings, intent, audio_file, date_str)
     write_artifact(settings, artifact)
 

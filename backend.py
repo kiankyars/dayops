@@ -271,6 +271,7 @@ def _process_uploaded_audio(
     upload: UploadFile,
     forced_type: str | None = None,
     apply_override: bool | None = None,
+    date_override: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, int] | None, Path]:
     with _env_overrides(profile["env"]):
         settings = load_settings()
@@ -295,6 +296,7 @@ def _process_uploaded_audio(
                 temp_path,
                 forced_type=forced_type,
                 apply_override=apply_override,
+                date_override=date_override,
             )
             save_state(settings, state)
             return artifact, diff, temp_path
@@ -485,12 +487,19 @@ def update_config(
 def plan_revise(
     file: UploadFile = File(...),
     apply: bool = Form(True),
+    date: str | None = Form(default=None),
     x_api_key: str | None = Header(default=None),
 ) -> dict[str, Any]:
     if not file.filename or not file.filename.lower().endswith(".m4a"):
         raise HTTPException(status_code=400, detail="file_must_be_m4a")
     profile = _require_api_profile(x_api_key)
-    artifact, diff, _ = _process_uploaded_audio(profile, file, forced_type="revision", apply_override=apply)
+    artifact, diff, _ = _process_uploaded_audio(
+        profile,
+        file,
+        forced_type="revision",
+        apply_override=apply,
+        date_override=date,
+    )
     with _env_overrides(profile["env"]):
         settings = load_settings()
         return {
