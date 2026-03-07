@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY pyproject.toml README.md ./
-COPY dayops_core.py main.py backend.py plan.md ./
+COPY dayops_core.py main.py backend.py ./
 
 RUN pip install --no-cache-dir .
 
