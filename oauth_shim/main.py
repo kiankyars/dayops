@@ -78,10 +78,11 @@ def _post_bootstrap(userinfo: dict[str, Any], token_json: str) -> str:
 
 @app.get("/auth/google/start")
 def auth_google_start(request: Request) -> RedirectResponse:
-    flow = Flow.from_client_config(_client_config(), scopes=OAUTH_SCOPES)
+    flow = Flow.from_client_config(_client_config(), scopes=OAUTH_SCOPES, autogenerate_code_verifier=True)
     flow.redirect_uri = _env("GOOGLE_OAUTH_REDIRECT_URI")
     auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent")
     request.session["oauth_state"] = state
+    request.session["oauth_code_verifier"] = flow.code_verifier
     request.session["redirect_after_auth"] = request.query_params.get("next", "").strip() or _env("DAYOPS_APP_URL")
     return RedirectResponse(auth_url, status_code=302)
 
@@ -89,8 +90,11 @@ def auth_google_start(request: Request) -> RedirectResponse:
 @app.get("/auth/google/callback")
 def auth_google_callback(request: Request) -> RedirectResponse:
     state = str(request.session.get("oauth_state", "")).strip()
+    code_verifier = str(request.session.get("oauth_code_verifier", "")).strip()
     if not state:
         raise HTTPException(status_code=400, detail="oauth_state_missing")
+    if not code_verifier:
+        raise HTTPException(status_code=400, detail="oauth_code_verifier_missing")
 
     flow = Flow.from_client_config(
         _client_config(),
@@ -99,6 +103,7 @@ def auth_google_callback(request: Request) -> RedirectResponse:
     )
     redirect_uri = _env("GOOGLE_OAUTH_REDIRECT_URI")
     flow.redirect_uri = redirect_uri
+    flow.code_verifier = code_verifier
     # Behind Cloud Run, request.url may be observed as http internally.
     authorization_response = f"{redirect_uri}?{request.url.query}"
     flow.fetch_token(authorization_response=authorization_response)
@@ -106,6 +111,7 @@ def auth_google_callback(request: Request) -> RedirectResponse:
     userinfo = _fetch_google_userinfo(flow.credentials.token)
     auth_token = _post_bootstrap(userinfo, flow.credentials.to_json())
     request.session.pop("oauth_state", None)
+    request.session.pop("oauth_code_verifier", None)
     request.session.pop("redirect_after_auth", None)
     login_url = _env("DAYOPS_AUTH_COMPLETE_URL") + f"?token={urllib.parse.quote(auth_token, safe='')}"
     return RedirectResponse(login_url, status_code=302)
