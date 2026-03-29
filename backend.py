@@ -6,8 +6,6 @@ import re
 import secrets
 import tempfile
 import threading
-import urllib.error
-import urllib.request
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from html import escape
@@ -18,7 +16,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
-from google_auth_oauthlib.flow import Flow
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -38,13 +36,6 @@ APP_STATE_DIR = Path(os.getenv("DAYOPS_STORAGE_ROOT", ".dayops_state")).expandus
 USERS_CONFIG_PATH = APP_STATE_DIR / "users.json"
 USERS_DATA_DIR = APP_STATE_DIR / "users"
 SESSION_SECRET_PATH = APP_STATE_DIR / "session_secret"
-CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
-OAUTH_SCOPES = [
-    "openid",
-    "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/userinfo.profile",
-    CALENDAR_SCOPE,
-]
 TIMEZONE_OPTIONS = {
     "Pacific Time": "America/Denver",
     "Mountain Time": "America/Denver",
@@ -115,6 +106,18 @@ def _new_api_key() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _oauth_entrypoint_url() -> str:
+    return os.getenv("DAYOPS_OAUTH_ENTRYPOINT_URL", "").strip()
+
+
+def _bootstrap_secret() -> str:
+    return os.getenv("DAYOPS_OAUTH_BOOTSTRAP_SECRET", "").strip()
+
+
+def _auth_ticket_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(_session_secret(), salt="dayops-auth-ticket")
+
+
 def _require_api_profile(x_api_key: str | None) -> dict[str, Any]:
     key = (x_api_key or "").strip()
     if not key:
@@ -149,46 +152,6 @@ def _env_overrides(overrides: dict[str, str]):
                     os.environ.pop(key, None)
                 else:
                     os.environ[key] = old
-
-
-def _oauth_client_config() -> dict[str, Any]:
-    client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
-    if client_id and client_secret:
-        return {
-            "web": {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-            }
-        }
-    raise HTTPException(status_code=500, detail="missing_google_oauth_client_env")
-
-
-def _oauth_redirect_uri() -> str:
-    uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
-    if not uri:
-        raise HTTPException(status_code=500, detail="missing_google_oauth_redirect_env")
-    return uri
-
-
-def _allow_local_insecure_oauth_transport(redirect_uri: str) -> None:
-    if redirect_uri.startswith("http://localhost") or redirect_uri.startswith("http://127.0.0.1"):
-        # Local dev only. Production OAuth callback must use HTTPS.
-        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
-
-
-def _fetch_google_userinfo(access_token: str) -> dict[str, Any]:
-    req = urllib.request.Request(
-        "https://www.googleapis.com/oauth2/v3/userinfo",
-        headers={"Authorization": f"Bearer {access_token}"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as resp:  # noqa: S310
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:  # pragma: no cover
-        raise HTTPException(status_code=400, detail=f"google_userinfo_failed: {exc.code}") from exc
 
 
 def _user_root(user_id: str) -> Path:
@@ -306,6 +269,11 @@ class DateRequest(BaseModel):
     date: str
 
 
+class OAuthBootstrapRequest(BaseModel):
+    userinfo: dict[str, Any]
+    token_json: str
+
+
 class PlanResponse(BaseModel):
     user_id: str
     date: str
@@ -326,6 +294,7 @@ def healthz() -> dict[str, str]:
 
 @app.get("/", response_class=HTMLResponse)
 def landing(request: Request) -> str:
+    auth_href = _oauth_entrypoint_url() or "/auth/google/start"
     if request.session.get("user_id"):
         return (
             "<html><body style='font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;"
@@ -341,7 +310,7 @@ def landing(request: Request) -> str:
         "max-width:640px;margin:80px auto;padding:0 20px;background:#fafafa;'>"
         "<h1 style='font-size:38px;margin:0 0 10px 0;'>dayops</h1>"
         "<p style='color:#4b5563;margin:0 0 26px 0;'>AI day planning with Google Calendar.</p>"
-        "<a href='/auth/google/start' style='display:inline-flex;align-items:center;gap:10px;"
+        f"<a href='{escape(auth_href)}' style='display:inline-flex;align-items:center;gap:10px;"
         "padding:12px 16px;border:1px solid #d1d5db;border-radius:12px;background:white;"
         "text-decoration:none;color:#111827;font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.06);'>"
         "<span style='font-size:18px;'>G</span> Sign in with Google</a>"
@@ -349,42 +318,41 @@ def landing(request: Request) -> str:
     )
 
 
-@app.get("/auth/google/start")
-def auth_google_start(request: Request) -> RedirectResponse:
-    flow = Flow.from_client_config(_oauth_client_config(), scopes=OAUTH_SCOPES)
-    redirect_uri = _oauth_redirect_uri()
-    _allow_local_insecure_oauth_transport(redirect_uri)
-    flow.redirect_uri = redirect_uri
-    auth_url, state = flow.authorization_url(access_type="offline", include_granted_scopes="true", prompt="consent")
-    request.session["oauth_state"] = state
-    request.session["oauth_code_verifier"] = flow.code_verifier
-    return RedirectResponse(auth_url, status_code=302)
+@app.post("/auth/google/bootstrap")
+def auth_google_bootstrap(
+    payload: OAuthBootstrapRequest,
+    x_bootstrap_secret: str | None = Header(default=None),
+) -> dict[str, str]:
+    expected_secret = _bootstrap_secret()
+    if not expected_secret:
+        raise HTTPException(status_code=500, detail="oauth_bootstrap_secret_missing")
+    provided_secret = (x_bootstrap_secret or "").strip()
+    if not provided_secret or not secrets.compare_digest(expected_secret, provided_secret):
+        raise HTTPException(status_code=401, detail="invalid_bootstrap_secret")
+
+    created = _upsert_user_from_oauth(payload.userinfo, payload.token_json)
+    auth_token = _auth_ticket_serializer().dumps({"user_id": created["user_id"]})
+    return {
+        "user_id": created["user_id"],
+        "email": created["email"],
+        "api_key": created["api_key"],
+        "auth_token": auth_token,
+    }
 
 
-@app.get("/auth/google/callback")
-def auth_google_callback(request: Request) -> RedirectResponse:
-    state = str(request.session.get("oauth_state", ""))
-    code_verifier = str(request.session.get("oauth_code_verifier", ""))
-    if not state:
-        raise HTTPException(status_code=400, detail="oauth_state_missing")
-    if not code_verifier:
-        raise HTTPException(status_code=400, detail="oauth_code_verifier_missing")
+@app.get("/auth/google/complete")
+def auth_google_complete(token: str, request: Request) -> RedirectResponse:
+    try:
+        payload = _auth_ticket_serializer().loads(token, max_age=600)
+    except SignatureExpired as exc:
+        raise HTTPException(status_code=400, detail="auth_token_expired") from exc
+    except BadSignature as exc:
+        raise HTTPException(status_code=400, detail="auth_token_invalid") from exc
 
-    flow = Flow.from_client_config(_oauth_client_config(), scopes=OAUTH_SCOPES, state=state)
-    redirect_uri = _oauth_redirect_uri()
-    _allow_local_insecure_oauth_transport(redirect_uri)
-    flow.redirect_uri = redirect_uri
-    flow.code_verifier = code_verifier
-    # Behind ingress, request.url may appear as http internally.
-    # Force token exchange to use the configured redirect URI scheme/host.
-    authorization_response = f"{redirect_uri}?{request.url.query}"
-    flow.fetch_token(authorization_response=authorization_response)
-
-    userinfo = _fetch_google_userinfo(flow.credentials.token)
-    created = _upsert_user_from_oauth(userinfo, flow.credentials.to_json())
-    request.session["user_id"] = created["user_id"]
-    request.session.pop("oauth_state", None)
-    request.session.pop("oauth_code_verifier", None)
+    user_id = str(payload.get("user_id", "")).strip()
+    if not user_id:
+        raise HTTPException(status_code=400, detail="auth_token_invalid")
+    request.session["user_id"] = user_id
     return RedirectResponse("/app", status_code=302)
 
 
