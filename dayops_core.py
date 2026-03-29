@@ -331,9 +331,8 @@ def generate_plan(settings: Settings, intent: dict[str, Any], audio_file: Path, 
     prompt = f"""
 Build a realistic day plan as JSON.
 Rules:
-- Respect constraints and timing.
-- Use 2-hour deep work blocks with breaks/walks.
-- Include transitions and meals.
+- Respect constraints, timing, and existing commitments.
+- If the memo is vague, make fewer assumptions to avoid overscheduling.
 - Respect existing busy events.
 Return JSON with keys: summary, notes_markdown, events[]
 where events[] have: title, start_iso, end_iso, description, location, source.
