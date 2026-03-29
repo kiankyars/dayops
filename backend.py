@@ -37,7 +37,7 @@ USERS_CONFIG_PATH = APP_STATE_DIR / "users.json"
 USERS_DATA_DIR = APP_STATE_DIR / "users"
 SESSION_SECRET_PATH = APP_STATE_DIR / "session_secret"
 TIMEZONE_OPTIONS = {
-    "Pacific Time": "America/Denver",
+    "Pacific Time": "America/Los_Angeles",
     "Mountain Time": "America/Denver",
     "Central Time": "America/Chicago",
     "Eastern Time": "America/New_York",
@@ -265,10 +265,6 @@ def _process_uploaded_audio(
             temp_path.unlink(missing_ok=True)
 
 
-class DateRequest(BaseModel):
-    date: str
-
-
 class OAuthBootstrapRequest(BaseModel):
     userinfo: dict[str, Any]
     token_json: str
@@ -400,7 +396,7 @@ def dashboard(request: Request) -> str:
     <div style="background:white;border:1px solid #e5e7eb;border-radius:14px;padding:16px 18px;margin-bottom:14px;">
       <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">API Key</div>
       <div style="display:flex;align-items:center;gap:10px;background:#f3f4f6;border-radius:10px;padding:8px 10px;margin-bottom:8px;">
-        <code id="api-key" style="display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;background:transparent;">{api_key}</code>
+        <code id="api-key" data-full-key="{api_key}" style="display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;background:transparent;">{api_key}</code>
         <button type="button" onclick="copyApiKey()" aria-label="Copy API Key" style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border:0;border-radius:8px;background:white;color:#111827;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.06);flex:0 0 auto;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
@@ -425,12 +421,32 @@ def dashboard(request: Request) -> str:
     <p style="margin-top:16px;"><a href="/logout" style="color:#4b5563;">Logout</a></p>
     <script>
       function copyApiKey() {{
-        const value = document.getElementById('api-key').innerText;
-        navigator.clipboard.writeText(value).then(() => {{
-          const badge = document.getElementById('copy-badge');
+        const badge = document.getElementById('copy-badge');
+        const value = document.getElementById('api-key').dataset.fullKey || '';
+        const showCopied = () => {{
           badge.style.display = 'inline-block';
           setTimeout(() => {{ badge.style.display = 'none'; }}, 2000);
-        }});
+        }};
+
+        if (navigator.clipboard && window.isSecureContext) {{
+          navigator.clipboard.writeText(value).then(showCopied).catch(copyWithFallback);
+          return;
+        }}
+
+        copyWithFallback();
+
+        function copyWithFallback() {{
+          const input = document.createElement('textarea');
+          input.value = value;
+          input.setAttribute('readonly', '');
+          input.style.position = 'absolute';
+          input.style.left = '-9999px';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          document.body.removeChild(input);
+          showCopied();
+        }}
       }}
     </script>
   </body>
@@ -505,8 +521,7 @@ def plan_revise(
         )
 
 
-@app.post("/ingest", response_model=PlanResponse)
-def ingest(
+def _plan_ingest(
     file: UploadFile = File(...),
     date: str = Form(...),
     x_api_key: str | None = Header(default=None),
@@ -539,12 +554,33 @@ def ingest(
         )
 
 
+@app.post("/plan", response_model=PlanResponse)
+def plan(
+    file: UploadFile = File(...),
+    date: str = Form(...),
+    x_api_key: str | None = Header(default=None),
+) -> PlanResponse:
+    return _plan_ingest(file=file, date=date, x_api_key=x_api_key)
+
+
+@app.post("/ingest", response_model=PlanResponse)
+def ingest(
+    file: UploadFile = File(...),
+    date: str = Form(...),
+    x_api_key: str | None = Header(default=None),
+) -> PlanResponse:
+    return _plan_ingest(file=file, date=date, x_api_key=x_api_key)
+
+
 @app.post("/rollback", response_model=PlanResponse)
-def plan_rollback(payload: DateRequest, x_api_key: str | None = Header(default=None)) -> PlanResponse:
+def plan_rollback(
+    date: str = Form(...),
+    x_api_key: str | None = Header(default=None),
+) -> PlanResponse:
     profile = _require_api_profile(x_api_key)
     with _env_overrides(profile["env"]):
         settings = load_settings()
-        date_value = payload.date.strip()
+        date_value = date.strip()
         if not date_value:
             raise HTTPException(status_code=400, detail="date_required")
         diff = rollback_day(settings, date_value)
