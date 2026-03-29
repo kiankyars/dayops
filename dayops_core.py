@@ -377,7 +377,7 @@ def load_artifact(settings: Settings, date_str: str) -> dict[str, Any]:
 
 
 def snapshot_path(settings: Settings, date_str: str) -> Path:
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     return settings.rollback_snapshot_dir / f"{date_str}_{stamp}.json"
 
 
@@ -477,7 +477,8 @@ def apply_artifact(settings: Settings, artifact: dict[str, Any], future_only: bo
 
 def rollback_day(settings: Settings, date_str: str) -> dict[str, int]:
     service = calendar_service(settings)
-    previous = json.loads(latest_snapshot(settings, date_str).read_text()).get("events", [])
+    latest_path = latest_snapshot(settings, date_str)
+    previous = json.loads(latest_path.read_text()).get("events", [])
     current = managed_events(calendar_events(service, settings, date_str))
 
     for event in current:
@@ -495,6 +496,9 @@ def rollback_day(settings: Settings, date_str: str) -> dict[str, int]:
         }
         service.events().insert(calendarId=settings.google_calendar_id, body=body).execute()
         restored += 1
+
+    # Treat snapshots as an undo stack so repeated rollbacks walk back through history.
+    latest_path.unlink(missing_ok=True)
 
     return {"creates": restored, "deletes": len(current), "locked": 0}
 
