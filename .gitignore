@@ -4,3 +4,4 @@ uv.lock
 .dayops_state
 logs/
 .cursor
+__pycache__

@@ -97,8 +97,11 @@ def auth_google_callback(request: Request) -> RedirectResponse:
         scopes=OAUTH_SCOPES,
         state=state,
     )
-    flow.redirect_uri = _env("GOOGLE_OAUTH_REDIRECT_URI")
-    flow.fetch_token(authorization_response=str(request.url))
+    redirect_uri = _env("GOOGLE_OAUTH_REDIRECT_URI")
+    flow.redirect_uri = redirect_uri
+    # Behind Cloud Run, request.url may be observed as http internally.
+    authorization_response = f"{redirect_uri}?{request.url.query}"
+    flow.fetch_token(authorization_response=authorization_response)
 
     userinfo = _fetch_google_userinfo(flow.credentials.token)
     auth_token = _post_bootstrap(userinfo, flow.credentials.to_json())
