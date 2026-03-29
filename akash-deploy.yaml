@@ -2,7 +2,7 @@ version: "2.0"
 
 services:
   dayops-api:
-    image: kyars/dayops:2085b06
+    image: kyars/dayops:a39cb4c
     expose:
       - port: 8000
         as: 80
