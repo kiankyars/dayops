@@ -370,6 +370,7 @@ def dashboard(request: Request) -> str:
     profile = _require_session_user(request)
     tz = escape(profile["env"].get("TIMEZONE", ""))
     cal_id = escape(profile["env"].get("GOOGLE_CALENDAR_ID", "primary"))
+    plan_template_text = escape(profile["env"].get("DAYOPS_PLAN_TEMPLATE_TEXT", ""))
     api_key = escape(profile["api_key"])
     email = escape(profile.get("email", ""))
 
@@ -381,10 +382,11 @@ def dashboard(request: Request) -> str:
     except Exception:
         calendar_options = ""
 
+    field_style = "display:block;width:100%;max-width:100%;box-sizing:border-box;padding:10px;border:1px solid #d1d5db;border-radius:10px;"
     calendar_input = (
-        f'<select name="google_calendar_id">{calendar_options}</select>'
+        f'<select name="google_calendar_id" style="{field_style}">{calendar_options}</select>'
         if calendar_options
-        else f'<input type="text" name="google_calendar_id" value="{cal_id}" />'
+        else f'<input type="text" name="google_calendar_id" value="{cal_id}" style="{field_style}" />'
     )
 
     current_tz = tz if tz in TIMEZONE_OPTIONS.values() else "America/Denver"
@@ -392,7 +394,12 @@ def dashboard(request: Request) -> str:
         f'<option value="{escape(value)}"' + (' selected' if value == current_tz else '') + f">{escape(label)}</option>"
         for label, value in TIMEZONE_OPTIONS.items()
     )
-    timezone_input = f'<select name="timezone" style="width:100%;padding:10px;border:1px solid #d1d5db;border-radius:10px;margin-bottom:14px;">{tz_options}</select>'
+    timezone_input = f'<select name="timezone" style="{field_style};margin-bottom:14px;">{tz_options}</select>'
+    plan_template_input = (
+        f'<textarea name="dayops_plan_template_text" '
+        f'placeholder="Morning: deep work on project X&#10;Afternoon: meetings and admin&#10;Evening: exercise and dinner" '
+        f'style="{field_style};min-height:132px;resize:vertical;font:inherit;line-height:1.45;">{plan_template_text}</textarea>'
+    )
 
     return f"""
 <html>
@@ -420,6 +427,11 @@ def dashboard(request: Request) -> str:
         {timezone_input}
         <label style="display:block;font-size:13px;color:#6b7280;margin-bottom:6px;">Calendar</label>
         {calendar_input}
+        <label style="display:block;font-size:13px;color:#6b7280;margin:14px 0 6px 0;">Planning sketch</label>
+        {plan_template_input}
+        <div style="margin-top:6px;font-size:12px;color:#6b7280;line-height:1.4;">
+          Optional morning / afternoon / evening sketch that DayOps should use as a guide unless the memo explicitly says not to follow it.
+        </div>
         <div style="margin-top:14px;">
           <button type="submit" style="padding:9px 13px;border:1px solid #111827;border-radius:10px;background:#111827;color:white;font-weight:600;">Save</button>
         </div>
@@ -477,6 +489,7 @@ def update_config(
     request: Request,
     timezone_value: str = Form(..., alias="timezone"),
     calendar_id: str = Form(..., alias="google_calendar_id"),
+    plan_template_text: str = Form("", alias="dayops_plan_template_text"),
 ) -> RedirectResponse:
     profile = _require_session_user(request)
     users = _read_users_config()
@@ -488,6 +501,11 @@ def update_config(
         selected_timezone = "America/Denver"
     env_map["TIMEZONE"] = selected_timezone
     env_map["GOOGLE_CALENDAR_ID"] = calendar_id.strip() or "primary"
+    template_value = plan_template_text.strip()
+    if template_value:
+        env_map["DAYOPS_PLAN_TEMPLATE_TEXT"] = template_value
+    else:
+        env_map.pop("DAYOPS_PLAN_TEMPLATE_TEXT", None)
     current["env"] = env_map
     users[profile["user_id"]] = current
     _write_users_config(users)

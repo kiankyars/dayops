@@ -34,6 +34,7 @@ class Settings:
     google_oauth_token_path: Path
 
     timezone: str
+    plan_template_text: str
 
 
 def _env(name: str) -> str:
@@ -66,6 +67,7 @@ def artifact_path(settings: Settings, date_str: str) -> Path:
 
 def load_settings() -> Settings:
     load_dotenv()
+    plan_template_raw = os.environ.get("DAYOPS_PLAN_TEMPLATE_TEXT", "").strip()
 
     settings = Settings(
         state_dir=Path(_env("DAYOPS_STATE_DIR")).expanduser(),
@@ -75,6 +77,7 @@ def load_settings() -> Settings:
         google_calendar_id=_env("GOOGLE_CALENDAR_ID"),
         google_oauth_token_path=Path(_env("GOOGLE_OAUTH_TOKEN_PATH")).expanduser(),
         timezone=_env("TIMEZONE"),
+        plan_template_text=plan_template_raw,
     )
 
     if not settings.google_oauth_token_path.exists():
@@ -324,9 +327,23 @@ def normalize_events(events: list[dict[str, Any]], timezone: str) -> list[dict[s
     return cleaned
 
 
+def _planning_template_text(settings: Settings) -> str:
+    return settings.plan_template_text.strip()[:12000]
+
+
 def generate_plan(settings: Settings, intent: dict[str, Any], audio_file: Path, date_str: str) -> dict[str, Any]:
     service = calendar_service(settings)
     busy = calendar_events(service, settings, date_str)
+    plan_template = _planning_template_text(settings)
+    template_block = ""
+    if plan_template:
+        template_block = f"""
+Planning template:
+- Unless the user explicitly says not to follow the template, use it as a guide for the schedule you make.
+- Treat it as grounding, not as a rigid script. Busy events and explicit constraints win.
+- Template contents:
+{plan_template}
+""".strip()
 
     prompt = f"""
 Build a realistic day plan as JSON.
@@ -343,6 +360,7 @@ Memo type: {intent.get('memo_type')}
 Intent JSON: {json.dumps(intent)}
 Busy events: {json.dumps(busy)}
 Source audio: {audio_file.name}
+{template_block}
 """.strip()
 
     data = llm_json(settings, prompt)
