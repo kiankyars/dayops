@@ -587,16 +587,6 @@ def plan(
 ) -> PlanResponse:
     return _plan_ingest(file=file, date=date, x_api_key=x_api_key)
 
-
-@app.post("/ingest", response_model=PlanResponse)
-def ingest(
-    file: UploadFile = File(...),
-    date: str = Form(...),
-    x_api_key: str | None = Header(default=None),
-) -> PlanResponse:
-    return _plan_ingest(file=file, date=date, x_api_key=x_api_key)
-
-
 @app.post("/rollback", response_model=PlanResponse)
 def plan_rollback(
     date: str = Form(...),

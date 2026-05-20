@@ -320,7 +320,7 @@ def normalize_events(events: list[dict[str, Any]], timezone: str) -> list[dict[s
                 "start_iso": start_iso,
                 "end_iso": end_iso,
                 "description": event.get("description", ""),
-                "location": event.get("location", ""),
+                "location": "",
                 "source": event.get("source", "dayops"),
             }
         )
@@ -351,8 +351,10 @@ Rules:
 - Respect constraints, timing, and existing commitments.
 - If the memo is vague, make fewer assumptions to avoid overscheduling.
 - Respect existing busy events.
+- Do not recreate events that are already on the calendar. Busy events are context, not new events to reproduce.
+- Do not add locations unless the user explicitly asks for one.
 Return JSON with keys: summary, notes_markdown, events[]
-where events[] have: title, start_iso, end_iso, description, location, source.
+where events[] have: title, start_iso, end_iso, description, source.
 
 Date: {date_str}
 Timezone: {intent.get('timezone', settings.timezone)}
@@ -417,8 +419,35 @@ def plan_end(event: dict[str, Any]) -> datetime:
     return datetime.fromisoformat(event["end_iso"].replace("Z", "+00:00"))
 
 
+def _calendar_event_signature(event: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(event.get("summary", "")).strip().casefold(),
+        str(event.get("start", {}).get("dateTime") or event.get("start", {}).get("date") or "").strip(),
+        str(event.get("end", {}).get("dateTime") or event.get("end", {}).get("date") or "").strip(),
+    )
+
+
+def _planned_event_signature(event: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(event.get("title", "")).strip().casefold(),
+        str(event.get("start_iso", "")).strip(),
+        str(event.get("end_iso", "")).strip(),
+    )
+
+
+def _surviving_event_signatures(day_events: list[dict[str, Any]], future_only: bool, now: datetime) -> set[tuple[str, str, str]]:
+    signatures: set[tuple[str, str, str]] = set()
+    for event in day_events:
+        props = event.get("extendedProperties", {}).get("private", {})
+        is_managed = props.get("dayopsManaged") == "true"
+        if is_managed and not (future_only and event_end(event) <= now):
+            continue
+        signatures.add(_calendar_event_signature(event))
+    return signatures
+
+
 def calendar_payload(event: dict[str, Any], date_str: str) -> dict[str, Any]:
-    body: dict[str, Any] = {
+    return {
         "summary": event["title"],
         "description": event.get("description", ""),
         "start": {"dateTime": event["start_iso"]},
@@ -431,15 +460,14 @@ def calendar_payload(event: dict[str, Any], date_str: str) -> dict[str, Any]:
             }
         },
     }
-    if event.get("location"):
-        body["location"] = event["location"]
-    return body
 
 
 def preview_apply_diff(settings: Settings, artifact: dict[str, Any], future_only: bool) -> dict[str, int]:
     service = calendar_service(settings)
-    existing = managed_events(calendar_events(service, settings, artifact["date"]))
+    day_events = calendar_events(service, settings, artifact["date"])
+    existing = managed_events(day_events)
     now = datetime.now(ZoneInfo(settings.timezone))
+    surviving_signatures = _surviving_event_signatures(day_events, future_only, now)
 
     deletes = 0
     locked = 0
@@ -453,6 +481,10 @@ def preview_apply_diff(settings: Settings, artifact: dict[str, Any], future_only
     for event in artifact["events"]:
         if future_only and plan_end(event) <= now:
             continue
+        signature = _planned_event_signature(event)
+        if signature in surviving_signatures:
+            continue
+        surviving_signatures.add(signature)
         creates += 1
 
     return {"creates": creates, "deletes": deletes, "locked": locked}
@@ -460,8 +492,10 @@ def preview_apply_diff(settings: Settings, artifact: dict[str, Any], future_only
 
 def apply_artifact(settings: Settings, artifact: dict[str, Any], future_only: bool) -> dict[str, int]:
     service = calendar_service(settings)
-    existing = managed_events(calendar_events(service, settings, artifact["date"]))
+    day_events = calendar_events(service, settings, artifact["date"])
+    existing = managed_events(day_events)
     now = datetime.now(ZoneInfo(settings.timezone))
+    surviving_signatures = _surviving_event_signatures(day_events, future_only, now)
 
     snapshot = {
         "date": artifact["date"],
@@ -484,10 +518,14 @@ def apply_artifact(settings: Settings, artifact: dict[str, Any], future_only: bo
     for event in artifact["events"]:
         if future_only and plan_end(event) <= now:
             continue
+        signature = _planned_event_signature(event)
+        if signature in surviving_signatures:
+            continue
         service.events().insert(
             calendarId=settings.google_calendar_id,
             body=calendar_payload(event, artifact["date"]),
         ).execute()
+        surviving_signatures.add(signature)
         creates += 1
 
     return {"creates": creates, "deletes": deletes, "locked": locked}
